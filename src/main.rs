@@ -28,51 +28,64 @@ mod test {
         with_reader_asset_bundle(&read_owned(), f)
     }
 
-	// pub fn with_reader_owned<'a, T, F: Fn(T) -> capnp::Result<()>>(
- //        f: F,
- //    ) -> capnp::Result<()> 
- //    	where T : capnp::traits::FromPointerReader<'a>
- //    {
- //        with_reader::<T, F>(&read_owned(), f)
- //    }
+    // pub fn with_reader_owned<'a, T, F: Fn(T) -> capnp::Result<()>>(
+    //        f: F,
+    //    ) -> capnp::Result<()>
+    //    	where T : capnp::traits::FromPointerReader<'a>
+    //    {
+    //        with_reader::<T, F>(&read_owned(), f)
+    //    }
 
-	pub fn with_readerxxx<'a, T : capnp::traits::FromPointerReader<'a>, F: Fn(T) -> capnp::Result<()>>(
-        mmap: &'a memmap::Mmap,
-        f: F,
-    ) -> capnp::Result<()> {
-        let message = serialize::read_message_from_words(
-            unsafe { Word::bytes_to_words(&mmap[..]) },
-            ::capnp::message::ReaderOptions::new(),
-        )
-        .unwrap();
-
-        f(message.get_root::<T>()?)
-    
-    }
-
-	pub fn with_reader<'a,T : capnp::traits::FromPointerReader<'a>, F: Fn(T) -> capnp::Result<()>>(
+    pub fn with_reader<
+        'a,
+        T: for<'b> capnp::traits::FromPointerReader<'b>,
+        // T: capnp::traits::FromPointerReader<'a>,
+        
+        F: Fn(T) -> capnp::Result<()>,
+    >(
         data: &'a CapnpMessageData,
         f: F,
     ) -> capnp::Result<()> {
         match data {
             CapnpMessageData::Owned(reader) => f(reader.get_root::<T>()?),
             CapnpMessageData::Mapped(mmap) => {
-                // let message = serialize::read_message_from_words(
-                //     unsafe { Word::bytes_to_words(&mmap[..]) },
-                //     ::capnp::message::ReaderOptions::new(),
-                // )
-                // .unwrap();
+                let message = serialize::read_message_from_words(
+                    unsafe { Word::bytes_to_words(&mmap[..]) },
+                    ::capnp::message::ReaderOptions::new(),
+                )
+                .unwrap();
 
-                // f(message.get_root::<T>()?)
-               	with_readerxxx(mmap, f)
+                f(message.get_root::<T>()?)
             }
         }
     }
 
+	pub fn get_reader<
+        'a,
+        T: capnp::traits::FromPointerReader<'a>,
+        // T: capnp::traits::FromPointerReader<'a>,
+    >(
+        data: &'a CapnpMessageData,
+       
+    ) -> capnp::Result<T> {
+        match data {
+            CapnpMessageData::Owned(reader) => reader.get_root::<T>(),
+            CapnpMessageData::Mapped(mmap) => {
+                let message = serialize::read_message_from_words(
+                    unsafe { Word::bytes_to_words(&mmap[..]) },
+                    ::capnp::message::ReaderOptions::new(),
+                )
+                .unwrap();
+
+                message.get_root::<T>()
+            }
+        }
+    }    
+
     pub fn with_reader_mmap_asset_bundle<F: Fn(asset_bundle::Reader) -> capnp::Result<()>>(
         f: F,
     ) -> capnp::Result<()> {
-     	with_reader_asset_bundle(&read_mmap(), f)
+        with_reader_asset_bundle(&read_mmap(), f)
     }
 
     pub fn with_reader_asset_bundle<F: Fn(asset_bundle::Reader) -> capnp::Result<()>>(
@@ -134,12 +147,20 @@ mod test {
         CapnpMessageData::Mapped(mmap)
     }
 
+    pub fn test_asset_bundle_owned() {
+        // with_reader(&read_owned(), print_asset_bundle).unwrap();
+     	with_reader_asset_bundle(&read_owned(), print_asset_bundle).unwrap();
+        let reader = get_reader::<asset_bundle::Reader>(&read_owned()).unwrap();
+        print_asset_bundle(reader);
+    }
+
 }
 fn main() {
     println!("Hello, world!");
 
     for _ in 0..100 {
-        test::with_reader_owned_asset_bundle(test::print_asset_bundle).unwrap();
+        // test::with_reader_owned_asset_bundle(test::print_asset_bundle).unwrap();
+        test::test_asset_bundle_owned();
     }
 
     for _ in 0..100 {
