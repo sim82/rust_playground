@@ -17,93 +17,102 @@ mod test {
     use capnp::serialize;
     use capnp::Word;
 
-    pub enum CapnpMessageData {
-        Owned(capnp::message::Reader<capnp::serialize::OwnedSegments>),
-        Mapped(memmap::Mmap),
+    pub enum CapnpReader<'a> {
+    	Owned(capnp::message::Reader<capnp::serialize::OwnedSegments>),
+    	Sliced(capnp::message::Reader<capnp::serialize::SliceSegments<'a>>),
     }
 
-    pub fn with_reader_owned_asset_bundle<F: Fn(asset_bundle::Reader) -> capnp::Result<()>>(
-        f: F,
-    ) -> capnp::Result<()> {
-        with_reader_asset_bundle(&read_owned(), f)
+    pub trait ReaderCreator<'a> {
+    	fn get_reader( &'a self ) -> CapnpReader<'a>;
     }
 
-    // pub fn with_reader_owned<'a, T, F: Fn(T) -> capnp::Result<()>>(
-    //        f: F,
-    //    ) -> capnp::Result<()>
-    //    	where T : capnp::traits::FromPointerReader<'a>
-    //    {
-    //        with_reader::<T, F>(&read_owned(), f)
-    //    }
-
-    pub fn with_reader<
-        'a,
-        T: for<'b> capnp::traits::FromPointerReader<'b>,
-        // T: capnp::traits::FromPointerReader<'a>,
-        
-        F: Fn(T) -> capnp::Result<()>,
-    >(
-        data: &'a CapnpMessageData,
-        f: F,
-    ) -> capnp::Result<()> {
-        match data {
-            CapnpMessageData::Owned(reader) => f(reader.get_root::<T>()?),
-            CapnpMessageData::Mapped(mmap) => {
-                let message = serialize::read_message_from_words(
-                    unsafe { Word::bytes_to_words(&mmap[..]) },
-                    ::capnp::message::ReaderOptions::new(),
-                )
-                .unwrap();
-
-                f(message.get_root::<T>()?)
-            }
-        }
+    struct MappedReaderCreator {
+    	mmap : memmap::Mmap,
     }
 
-	pub fn get_reader<
-        'a,
-        T: capnp::traits::FromPointerReader<'a>,
-        // T: capnp::traits::FromPointerReader<'a>,
-    >(
-        data: &'a CapnpMessageData,
-       
-    ) -> capnp::Result<T> {
-        match data {
-            CapnpMessageData::Owned(reader) => reader.get_root::<T>(),
-            CapnpMessageData::Mapped(mmap) => {
-                let message = serialize::read_message_from_words(
-                    unsafe { Word::bytes_to_words(&mmap[..]) },
-                    ::capnp::message::ReaderOptions::new(),
-                )
-                .unwrap();
-
-                message.get_root::<T>()
-            }
-        }
-    }    
-
-    pub fn with_reader_mmap_asset_bundle<F: Fn(asset_bundle::Reader) -> capnp::Result<()>>(
-        f: F,
-    ) -> capnp::Result<()> {
-        with_reader_asset_bundle(&read_mmap(), f)
+    impl MappedReaderCreator {
+    	fn new() -> MappedReaderCreator
+    	{
+    		let file = File::open("test.bin").unwrap();
+    		MappedReaderCreator{mmap : unsafe { MmapOptions::new().map(&file).unwrap() }}
+    	}
     }
 
-    pub fn with_reader_asset_bundle<F: Fn(asset_bundle::Reader) -> capnp::Result<()>>(
-        data: &CapnpMessageData,
-        f: F,
-    ) -> capnp::Result<()> {
-        match data {
-            CapnpMessageData::Owned(reader) => f(reader.get_root::<asset_bundle::Reader>()?),
-            CapnpMessageData::Mapped(mmap) => {
-                let message = serialize::read_message_from_words(
-                    unsafe { Word::bytes_to_words(&mmap[..]) },
-                    ::capnp::message::ReaderOptions::new(),
-                )
-                .unwrap();
+    struct OwnedReaderCreator {}
 
-                f(message.get_root::<asset_bundle::Reader>()?)
-            }
-        }
+    impl OwnedReaderCreator {
+    	fn new() -> OwnedReaderCreator 
+    	{
+    		OwnedReaderCreator{}
+    	}
+    }
+
+    impl<'a> ReaderCreator<'a> for MappedReaderCreator {
+    	
+    	fn get_reader( &'a self ) -> CapnpReader<'a> {
+			CapnpReader::Sliced(serialize::read_message_from_words(
+            	unsafe { Word::bytes_to_words(&self.mmap[..]) },
+            	::capnp::message::ReaderOptions::new(),
+        	).unwrap())    		
+    	}
+    }
+
+    impl<'a> ReaderCreator<'a> for OwnedReaderCreator {
+    	fn get_reader(&'a self ) -> CapnpReader<'a> {
+			let mut file = File::open("test.bin").unwrap();
+			CapnpReader::Owned(serialize::read_message(&mut file, ::capnp::message::ReaderOptions::new()).unwrap())
+		}
+    }
+
+    pub fn test_reader2<'a>( reader : &'a CapnpReader<'a> )
+     -> capnp::Result<()>
+    {
+    	let asset_bundle = match reader {
+    		CapnpReader::Owned(r) => r.get_root::<asset_bundle::Reader>(),
+    		CapnpReader::Sliced(r) => r.get_root::<asset_bundle::Reader>()
+    	};
+
+		print_asset_bundle(asset_bundle?)    	
+    }
+
+    pub fn test_new_try( switch : bool ) -> capnp::Result<()>
+    {
+    	let mut file = File::open("test.bin").unwrap();
+
+		let mmap = unsafe { MmapOptions::new().map(&file).unwrap() };
+    	let reader = if switch {
+
+    		CapnpReader::Sliced(serialize::read_message_from_words(
+            	unsafe { Word::bytes_to_words(&mmap[..]) },
+            	::capnp::message::ReaderOptions::new(),
+        	)?)
+    	} else {
+			CapnpReader::Owned(serialize::read_message(&mut file, ::capnp::message::ReaderOptions::new())?)    		
+    	};
+
+     //    let mmap = unsafe { MmapOptions::new().map(&file).unwrap() };
+    	// let reader = CapnpReader::Sliced(serialize::read_message_from_words(
+     //        unsafe { Word::bytes_to_words(&mmap[..]) },
+     //        ::capnp::message::ReaderOptions::new(),
+     //    )?);
+
+     	// let reader = CapnpReader::Owned(serialize::read_message(&mut file, ::capnp::message::ReaderOptions::new())?);
+
+    	test_reader2(&reader)
+    }
+
+
+    pub fn test_new_try_with_traits( switch : bool ) -> capnp::Result<()>{
+    	
+    	let creator : Box<ReaderCreator> = if switch {
+    	 	Box::new(MappedReaderCreator::new())
+    	} else {
+    		Box::new(OwnedReaderCreator::new()) 
+    	};
+
+    	//let reader = creator.get_reader();
+    	test_reader2(&creator.get_reader())
+    	// Ok(())
     }
 
     pub fn print_asset_bundle(asset_bundle: asset_bundle::Reader) -> capnp::Result<()> {
@@ -133,37 +142,21 @@ mod test {
         }
         Ok(())
     }
-
-    pub fn read_owned() -> CapnpMessageData {
-        let mut file = File::open("test.bin").unwrap();
-        let message_reader =
-            serialize::read_message(&mut file, ::capnp::message::ReaderOptions::new()).unwrap();
-        CapnpMessageData::Owned(message_reader)
-    }
-    pub fn read_mmap() -> CapnpMessageData {
-        let file = File::open("test.bin").unwrap();
-
-        let mmap = unsafe { MmapOptions::new().map(&file).unwrap() };
-        CapnpMessageData::Mapped(mmap)
-    }
-
-    pub fn test_asset_bundle_owned() {
-        // with_reader(&read_owned(), print_asset_bundle).unwrap();
-     	with_reader_asset_bundle(&read_owned(), print_asset_bundle).unwrap();
-        let reader = get_reader::<asset_bundle::Reader>(&read_owned()).unwrap();
-        print_asset_bundle(reader);
-    }
-
 }
 fn main() {
     println!("Hello, world!");
 
-    for _ in 0..100 {
-        // test::with_reader_owned_asset_bundle(test::print_asset_bundle).unwrap();
-        test::test_asset_bundle_owned();
+	for i in 0..100 {
+    	//test::test_new_try( i % 2 == 0).unwrap();
+    	test::test_new_try_with_traits( i % 2 == 0).unwrap();
     }
 
-    for _ in 0..100 {
-        test::with_reader_mmap_asset_bundle(test::print_asset_bundle).unwrap();
-    }
+    // for _ in 0..100 {
+    //     // test::with_reader_owned_asset_bundle(test::print_asset_bundle).unwrap();
+    //     test::test_asset_bundle_owned();
+    // }
+
+    // for _ in 0..100 {
+    //     test::with_reader_mmap_asset_bundle(test::print_asset_bundle).unwrap();
+    // }
 }
