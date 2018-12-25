@@ -38,6 +38,7 @@ mod test {
         // fn get_root<'a, T : capnp::traits::FromPointerReader<'a> >(&'a self) -> Box<T>;
     }
 
+
     struct MappedReaderCreator {
         mmap: memmap::Mmap,
     }
@@ -97,6 +98,7 @@ mod test {
         test_reader2(&creator.get_reader())
     }
 
+
     pub fn print_asset_bundle(asset_bundle: asset_bundle::Reader) -> capnp::Result<()> {
         for asset in asset_bundle.get_assets()?.iter() {
             println!("{}", asset.get_header()?.get_name()?);
@@ -125,6 +127,9 @@ mod test {
         Ok(())
     }
 }
+
+
+
 fn main() {
     println!("Hello, world!");
 
