@@ -24,26 +24,30 @@ mod test {
 
     pub trait ReaderCreator<'a> {
     	fn get_reader( &'a self ) -> CapnpReader<'a>;
+    	fn bla1(&self);
+    	fn bla(&'a self) -> &'a u32;
     }
 
     struct MappedReaderCreator {
     	mmap : memmap::Mmap,
+    	x : u32,
     }
 
     impl MappedReaderCreator {
     	fn new() -> MappedReaderCreator
     	{
     		let file = File::open("test.bin").unwrap();
-    		MappedReaderCreator{mmap : unsafe { MmapOptions::new().map(&file).unwrap() }}
+    		MappedReaderCreator{mmap : unsafe { MmapOptions::new().map(&file).unwrap() }, x : 666}
     	}
+    	
     }
 
-    struct OwnedReaderCreator {}
+    struct OwnedReaderCreator { x : u32 }
 
     impl OwnedReaderCreator {
     	fn new() -> OwnedReaderCreator 
     	{
-    		OwnedReaderCreator{}
+    		OwnedReaderCreator{ x : 1234 }
     	}
     }
 
@@ -55,6 +59,14 @@ mod test {
             	::capnp::message::ReaderOptions::new(),
         	).unwrap())    		
     	}
+
+    	fn bla(&'a self) -> &'a u32{
+    		&self.x
+    	}
+    	fn bla1(&self) {
+    		println!("OwnedReaderCreator");
+    		
+    	}
     }
 
     impl<'a> ReaderCreator<'a> for OwnedReaderCreator {
@@ -62,6 +74,13 @@ mod test {
 			let mut file = File::open("test.bin").unwrap();
 			CapnpReader::Owned(serialize::read_message(&mut file, ::capnp::message::ReaderOptions::new()).unwrap())
 		}
+		fn bla(&'a self) -> &'a u32 {
+    		&self.x
+    	}
+    	fn bla1(&self) {
+    		println!("MappedReaderCreator");
+    		
+    	}
     }
 
     pub fn test_reader2<'a>( reader : &'a CapnpReader<'a> )
@@ -74,6 +93,7 @@ mod test {
 
 		print_asset_bundle(asset_bundle?)    	
     }
+
 
     pub fn test_new_try( switch : bool ) -> capnp::Result<()>
     {
@@ -104,15 +124,35 @@ mod test {
 
     pub fn test_new_try_with_traits( switch : bool ) -> capnp::Result<()>{
     	
-    	let creator : Box<ReaderCreator> = if switch {
-    	 	Box::new(MappedReaderCreator::new())
-    	} else {
-    		Box::new(OwnedReaderCreator::new()) 
-    	};
+    	// let creator : Box<ReaderCreator> = if switch {
+    	//  	Box::new(MappedReaderCreator::new())
+    	// } else {
+    	// 	Box::new(OwnedReaderCreator::new()) 
+    	// };
 
     	//let reader = creator.get_reader();
-    	test_reader2(&creator.get_reader())
-    	// Ok(())
+    	//test_reader2(&reader)
+		// let creator = if switch {
+  //   	 	Box::new(MappedReaderCreator::new()) as Box<ReaderCreator>
+  //   	} else {
+  //   		Box::new(OwnedReaderCreator::new()) 
+  //   	};
+  		let creator;
+  		// if switch {
+
+  			creator = Box::new(MappedReaderCreator::new()) as Box<dyn ReaderCreator>;
+  		// } else {
+  			// creator = Box::new(OwnedReaderCreator::new());
+  		// }
+  		// let &c2 = &*creator;
+    	//let reader = &creator.get_reader();
+    	//test_reader2(reader)
+
+    	creator.bla1();
+    	creator.bla1();
+    	let &x = creator.bla();
+
+    	Ok(())
     }
 
     pub fn print_asset_bundle(asset_bundle: asset_bundle::Reader) -> capnp::Result<()> {
