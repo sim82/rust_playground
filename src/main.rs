@@ -18,119 +18,83 @@ mod test {
     use capnp::Word;
 
     pub enum CapnpReader<'a> {
-    	Owned(capnp::message::Reader<capnp::serialize::OwnedSegments>),
-    	Sliced(capnp::message::Reader<capnp::serialize::SliceSegments<'a>>),
+        Owned(capnp::message::Reader<capnp::serialize::OwnedSegments>),
+        Sliced(capnp::message::Reader<capnp::serialize::SliceSegments<'a>>),
+    }
+
+    impl<'a> CapnpReader<'a> {
+    	fn get_root<T: capnp::traits::FromPointerReader<'a>> (&'a self) -> Box<T> {
+    		match self {
+				CapnpReader::Owned(r) => Box::new(r.get_root::<T>().unwrap()) as Box<T>,
+            	CapnpReader::Sliced(r) => Box::new(r.get_root::<T>().unwrap()),
+    		}
+    	}
     }
 
     pub trait ReaderCreator {
-    	fn get_reader<'a>( &'a self ) -> CapnpReader<'a>;
-    	fn bla1(&self);
-    	fn bla<'a>(&'a self) -> &'a u32;
+        // fn get_reader<'a>(&'a self) -> CapnpReader<'a>;
+        fn get_reader(&self) -> CapnpReader<'_>;
+        
+        // fn get_root<'a, T : capnp::traits::FromPointerReader<'a> >(&'a self) -> Box<T>;
     }
 
     struct MappedReaderCreator {
-    	mmap : memmap::Mmap,
-    	x : u32,
+        mmap: memmap::Mmap,
     }
 
     impl MappedReaderCreator {
-    	fn new() -> MappedReaderCreator
-    	{
-    		let file = File::open("test.bin").unwrap();
-    		MappedReaderCreator{mmap : unsafe { MmapOptions::new().map(&file).unwrap() }, x : 666}
-    	}
-    	
+        fn new() -> MappedReaderCreator {
+            let file = File::open("test.bin").unwrap();
+            MappedReaderCreator {
+                mmap: unsafe { MmapOptions::new().map(&file).unwrap() },
+            }
+        }
     }
 
-    struct OwnedReaderCreator { x : u32 }
+    struct OwnedReaderCreator {}
 
     impl OwnedReaderCreator {
-    	fn new() -> OwnedReaderCreator 
-    	{
-    		OwnedReaderCreator{ x : 1234 }
-    	}
+        fn new() -> OwnedReaderCreator {
+            OwnedReaderCreator {}
+        }
     }
 
     impl ReaderCreator for MappedReaderCreator {
-    	
-    	fn get_reader<'a>( &'a self ) -> CapnpReader<'a> {
-			CapnpReader::Sliced(serialize::read_message_from_words(
-            	unsafe { Word::bytes_to_words(&self.mmap[..]) },
-            	::capnp::message::ReaderOptions::new(),
-        	).unwrap())    		
-    	}
-
-    	fn bla<'a>(&'a self) -> &'a u32{
-    		&self.x
-    	}
-    	fn bla1(&self) {
-    		println!("OwnedReaderCreator");
-    		
-    	}
+        // fn get_reader<'a>(&'a self) -> CapnpReader<'a> {
+        fn get_reader(& self) -> CapnpReader<'_> {
+        
+            CapnpReader::Sliced(
+                serialize::read_message_from_words(
+                    unsafe { Word::bytes_to_words(&self.mmap[..]) },
+                    ::capnp::message::ReaderOptions::new(),
+                )
+                .unwrap(),
+            )
+        }
     }
 
     impl ReaderCreator for OwnedReaderCreator {
-    	fn get_reader<'a>(&'a self ) -> CapnpReader<'a> {
-			let mut file = File::open("test.bin").unwrap();
-			CapnpReader::Owned(serialize::read_message(&mut file, ::capnp::message::ReaderOptions::new()).unwrap())
-		}
-		fn bla<'a>(&'a self) -> &'a u32 {
-    		&self.x
-    	}
-    	fn bla1(&self) {
-    		println!("MappedReaderCreator");
-    		
-    	}
+        fn get_reader(& self) -> CapnpReader<'_> {
+            let mut file = File::open("test.bin").unwrap();
+            CapnpReader::Owned(
+                serialize::read_message(&mut file, ::capnp::message::ReaderOptions::new()).unwrap(),
+            )
+        }
     }
 
-    pub fn test_reader2<'a>( reader : &'a CapnpReader<'a> )
-     -> capnp::Result<()>
-    {
-    	let asset_bundle = match reader {
-    		CapnpReader::Owned(r) => r.get_root::<asset_bundle::Reader>(),
-    		CapnpReader::Sliced(r) => r.get_root::<asset_bundle::Reader>()
-    	};
-
-		print_asset_bundle(asset_bundle?)    	
+    pub fn test_reader2(reader: &CapnpReader<'_>) -> capnp::Result<()> {
+        print_asset_bundle(*reader.get_root::<asset_bundle::Reader>())
     }
 
 
-    pub fn test_new_try( switch : bool ) -> capnp::Result<()>
-    {
-    	let mut file = File::open("test.bin").unwrap();
+    pub fn test_new_try_with_traits(switch: bool) -> capnp::Result<()> {
+        let creator = if switch {
+            Box::new(MappedReaderCreator::new()) as Box<ReaderCreator>
+        } else {
+            Box::new(OwnedReaderCreator::new())
+        };
 
-		let mmap = unsafe { MmapOptions::new().map(&file).unwrap() };
-    	let reader = if switch {
-
-    		CapnpReader::Sliced(serialize::read_message_from_words(
-            	unsafe { Word::bytes_to_words(&mmap[..]) },
-            	::capnp::message::ReaderOptions::new(),
-        	)?)
-    	} else {
-			CapnpReader::Owned(serialize::read_message(&mut file, ::capnp::message::ReaderOptions::new())?)    		
-    	};
-
-     //    let mmap = unsafe { MmapOptions::new().map(&file).unwrap() };
-    	// let reader = CapnpReader::Sliced(serialize::read_message_from_words(
-     //        unsafe { Word::bytes_to_words(&mmap[..]) },
-     //        ::capnp::message::ReaderOptions::new(),
-     //    )?);
-
-     	// let reader = CapnpReader::Owned(serialize::read_message(&mut file, ::capnp::message::ReaderOptions::new())?);
-
-    	test_reader2(&reader)
-    }
-
-
-    pub fn test_new_try_with_traits( switch : bool ) -> capnp::Result<()>{
-  		let creator;
-  		if switch {
-  			creator = Box::new(MappedReaderCreator::new()) as Box<ReaderCreator>;
-  		} else {
-  			creator = Box::new(OwnedReaderCreator::new());
-  		}
-
-    	test_reader2(&creator.get_reader())
+        test_reader2(&creator.get_reader())
     }
 
     pub fn print_asset_bundle(asset_bundle: asset_bundle::Reader) -> capnp::Result<()> {
@@ -164,11 +128,10 @@ mod test {
 fn main() {
     println!("Hello, world!");
 
-	for i in 0..100 {
-    	//test::test_new_try( i % 2 == 0).unwrap();
-    	// test::test_new_try_with_traits( i % 2 == 0).unwrap();
-		test::test_new_try_with_traits( false ).unwrap();
-    
+    for _i in 0..100 {
+        //test::test_new_try( i % 2 == 0).unwrap();
+        // test::test_new_try_with_traits( i % 2 == 0).unwrap();
+        test::test_new_try_with_traits(false).unwrap();
     }
 
     // for _ in 0..100 {
