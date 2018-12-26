@@ -1,22 +1,17 @@
-trait TestTrait {
-	fn get<'a>(&'a self) -> &'a u32;
-}
+extern crate capnp_test;
 
 
-struct Struct1 { x : u32 }
-
-impl TestTrait for Struct1 {
-	fn get<'a>(&'a self) -> &'a u32 {
-		&self.x
-	}
-}
+use capnp_test::deref::{create_outer, Factory, InnerTrait, OuterTrait};
 
 fn main() {
     println!("Hello, world!");
 
+    //let f = Factory::new();
 
-    let tt = Box::new(Struct1{ x : 666}) as Box<TestTrait>;
+    //let o = f.get();
+    let v : u32 = 666;
+    let o = create_outer(&v);
+    let i = o.get();
+    i.bla();
 
-
-    tt.get();
 }
