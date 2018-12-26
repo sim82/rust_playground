@@ -1,15 +1,43 @@
 extern crate capnp_test;
 
 
-use capnp_test::deref::{create_outer, Factory, InnerTrait, OuterTrait};
+pub trait InnerTrait<'a> {
+	fn bla(&self);
+}
+
+pub trait OuterTrait<'a> {
+	fn get(&'a self) -> Box<InnerTrait + 'a>;
+}
+
+struct Inner<'a> {
+	u : &'a u32,
+}
+
+struct Outer<'a> {
+	x : &'a u32
+}
+
+impl<'a> OuterTrait<'a> for Outer<'a> {
+	fn get(&'a self) -> Box<InnerTrait + 'a> {
+		Box::new(Inner{ u : &self.x }) //, u : &self.x })
+	}
+}
+
+impl<'a> InnerTrait<'a> for Inner<'a> {
+	fn bla(&self) {
+		println!("bla {}", self.u);
+	}
+}
+
+pub fn create_outer<'a>( i : &'a u32) -> impl OuterTrait<'a> {
+	Outer{ x : i }
+}
+
 
 fn main() {
     println!("Hello, world!");
 
-    //let f = Factory::new();
-
-    //let o = f.get();
-    let v : u32 = 666;
+    let v : u32 = 123;
     let o = create_outer(&v);
     let i = o.get();
     i.bla();

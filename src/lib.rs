@@ -84,7 +84,7 @@ pub mod asset_bundle {
             AssetBundleFile{ map : map }
 		}
 
-		pub fn access<'a>(&'a self) -> impl AssetBundleAccess<'a> {
+		pub fn access<'a>(&'a self) -> impl AssetBundleAccess<'a> + 'a {
 			let msg = serialize::read_message_from_words(
                 unsafe { Word::bytes_to_words(&self.map[..]) },
                 ::capnp::message::ReaderOptions::new(),
@@ -92,56 +92,6 @@ pub mod asset_bundle {
             .unwrap();
 			MappedBundle{message : msg}
 		}
-	}
-
-}
-
-pub mod deref {
-	pub struct Factory {
-		i : u32
-	}
-
-	impl Factory {
-		pub fn new() -> Factory {
-			Factory{ i : 666 }
-		}
-
-		pub fn get<'a>(&'a self) -> impl OuterTrait<'a> {
-			Outer{ x : &self.i }
-		}  
-	}
-
-	pub trait InnerTrait {
-		fn bla(&self);
-	}
-
-	pub trait OuterTrait<'a> {
-		fn get(&'a self) -> Box<InnerTrait + 'a>;
-	}
-
-	struct Inner<'a> {
-		o : &'a Outer<'a>,
-		u : &'a u32,
-	}
-
-	struct Outer<'a> {
-		x : &'a u32
-	}
-
-	impl<'a> OuterTrait<'a> for Outer<'a> {
-		fn get(&'a self) -> Box<InnerTrait + 'a> {
-			Box::new(Inner{ o : self, u : &self.x })
-		}
-	}
-
-	impl InnerTrait for Inner<'_> {
-		fn bla(&self) {
-			println!("bla {}", self.o.x);
-		}
-	}
-
-	pub fn create_outer<'a>( i : &'a u32) -> impl OuterTrait<'a> {
-		Outer{ x : i }
 	}
 
 }
