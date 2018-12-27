@@ -16,36 +16,20 @@ pub mod asset_bundle {
 	use std::fs::File;
 	use memmap::MmapOptions;	
 	use capnp::{serialize, Word};
-	use std::cell::RefCell;
-
-	pub trait AssetRef {
-		fn get<'a>(&'a self) -> asset::Reader<'a>;
-	}
 
 	pub trait AssetBundleAccess {
 		fn get_by_name<'a>( &'a self, name : &str ) -> asset::Reader<'a>;
 	}
 
-	struct MappedBundleAssetRef<'a> {
-		reader : &'a capnp::message::Reader<capnp::serialize::SliceSegments<'a>>,
-		index : u32,
+	struct IndexCache<T : capnp::message::ReaderSegments> {
+		message : capnp::message::Reader<T>,
+		map : std::collections::HashMap<String,u32>,
 	}
 
-	impl AssetRef for MappedBundleAssetRef<'_> {
-		fn get<'a>(&'a self) -> asset::Reader<'a> {
-			self.reader.get_root::<asset_bundle::Reader>().unwrap().get_assets().unwrap().get(self.index)	
-		}
-	}
-
-	struct MappedBundle<'a> {
-		message : capnp::message::Reader<capnp::serialize::SliceSegments<'a>>,
-	}
-
-	
-	impl AssetBundleAccess for MappedBundle<'_> {
+	impl<T : capnp::message::ReaderSegments> AssetBundleAccess for capnp::message::Reader<T> {
 		fn get_by_name<'a>( &'a self, name : &str ) -> asset::Reader<'a> {
             let mut index = -1;
-            let asset_bundle = self.message.get_root::<asset_bundle::Reader>().unwrap();
+            let asset_bundle = self.get_root::<asset_bundle::Reader>().unwrap();
             
             let headers = asset_bundle.get_index().unwrap().get_headers().unwrap();
 
@@ -65,9 +49,33 @@ pub mod asset_bundle {
 		}
 	}
 
+	// impl<T : capnp::message::ReaderSegments> AssetBundleAccess for capnp::message::Reader<T> {
+	// 	fn get_by_name<'a>( &'a self, name : &str ) -> asset::Reader<'a> {
+ //            let mut index = -1;
+ //            let asset_bundle = self.get_root::<asset_bundle::Reader>().unwrap();
+            
+ //            let headers = asset_bundle.get_index().unwrap().get_headers().unwrap();
+
+ //            for (i, header) in headers.iter().enumerate() {
+ //            	if header.get_name().unwrap() == name {
+ //            		index = i as isize;
+ //            	}
+ //            }
+
+ //            if index == -1 {
+ //            	panic!("not found");
+ //            }
+
+ //            let assets = asset_bundle.get_assets().unwrap();
+	// 		assets.get(index as u32)            
+
+	// 	}
+	// }
+
 	pub struct AssetBundleFile {
 		map : memmap::Mmap,
 	}
+
 	impl AssetBundleFile {
 		pub fn open<P : AsRef<Path>>(path : P) -> AssetBundleFile {
 			let file = File::open(path).unwrap();
@@ -81,42 +89,14 @@ pub mod asset_bundle {
                 ::capnp::message::ReaderOptions::new(),
             )
             .unwrap();
-			MappedBundle{message : msg}
+			msg
 		}
-	}
-
-
-	pub struct OwnedAssetBundle {
-		message : capnp::message::Reader<capnp::serialize::OwnedSegments>
-	}
-	impl AssetBundleAccess for OwnedAssetBundle {
-		fn get_by_name<'a>( &'a self, name : &str ) -> asset::Reader<'a> {
-            let mut index = -1;
-            let asset_bundle = self.message.get_root::<asset_bundle::Reader>().unwrap();
-            
-            let headers = asset_bundle.get_index().unwrap().get_headers().unwrap();
-
-            for (i, header) in headers.iter().enumerate() {
-            	if header.get_name().unwrap() == name {
-            		index = i as isize;
-            	}
-            }
-
-            if index == -1 {
-            	panic!("not found");
-            }
-
-            let assets = asset_bundle.get_assets().unwrap();
-			assets.get(index as u32)            
-
-		}	
-
-
 	}
 
 	pub fn owned_access<P : AsRef<Path>>(path : P) -> impl AssetBundleAccess {
 		let mut file = File::open(path).unwrap();
 
-		OwnedAssetBundle{message : capnp::serialize::read_message(&mut file, ::capnp::message::ReaderOptions::new()).unwrap()}
+		//OwnedAssetBundle{message : capnp::serialize::read_message(&mut file, ::capnp::message::ReaderOptions::new()).unwrap()}
+		capnp::serialize::read_message(&mut file, ::capnp::message::ReaderOptions::new()).unwrap()
 	}
 }
