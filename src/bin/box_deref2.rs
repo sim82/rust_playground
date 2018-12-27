@@ -13,12 +13,12 @@ struct Inner<'a> {
 	u : &'a u32,
 }
 
-struct Outer<'a> {
+pub struct Outer<'a> {
 	x : &'a u32
 }
 
 impl<'a> OuterTrait<'a> for Outer<'a> {
-	fn get(&'a self) -> Box<InnerTrait<'a> + 'a> {
+	fn get(&'a self) -> Box<InnerTrait + 'a> {
 		Box::new(Inner{ u : &self.x }) //, u : &self.x })
 	}
 }
@@ -29,11 +29,9 @@ impl<'a> InnerTrait<'a> for Inner<'a> {
 	}
 }
 
-// pub fn create_outer<'a>( i : &'a u32) -> impl OuterTrait<'a> {
-// 	Outer{ x : i }
-// }
 
-pub fn create_outer<'a>( i : &'a u32) -> Box<OuterTrait<'a> + 'a> {
+
+pub fn create_outer<'a>( i : &'a u32) -> Box<Outer<'a>> {
 	Box::new(Outer{ x : i })
 }
 
@@ -43,7 +41,7 @@ fn main() {
 
     let v : u32 = 123;
     let o = create_outer(&v);
-    // let i = o.get();
-    // i.bla();
+    let i = o.get();
+    i.bla();
 
 }

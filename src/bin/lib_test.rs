@@ -12,7 +12,7 @@ fn main() {
 
 	{
 		// let r = access.get_by_name2("model/test/map_color_2.png");
-		access.bla();
+		// access.bla();
 	// println!("{}", r.get_header().unwrap().get_name().unwrap());
 	}
 	// drop(r);
