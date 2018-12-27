@@ -23,21 +23,20 @@ mod test {
     }
 
     impl<'a> CapnpReader<'a> {
-    	fn get_root<T: capnp::traits::FromPointerReader<'a>> (&'a self) -> Box<T> {
-    		match self {
-				CapnpReader::Owned(r) => Box::new(r.get_root::<T>().unwrap()) as Box<T>,
-            	CapnpReader::Sliced(r) => Box::new(r.get_root::<T>().unwrap()),
-    		}
-    	}
+        fn get_root<T: capnp::traits::FromPointerReader<'a>>(&'a self) -> Box<T> {
+            match self {
+                CapnpReader::Owned(r) => Box::new(r.get_root::<T>().unwrap()) as Box<T>,
+                CapnpReader::Sliced(r) => Box::new(r.get_root::<T>().unwrap()),
+            }
+        }
     }
 
     pub trait ReaderCreator {
         // fn get_reader<'a>(&'a self) -> CapnpReader<'a>;
         fn get_reader(&self) -> CapnpReader<'_>;
-        
+
         // fn get_root<'a, T : capnp::traits::FromPointerReader<'a> >(&'a self) -> Box<T>;
     }
-
 
     struct MappedReaderCreator {
         mmap: memmap::Mmap,
@@ -62,8 +61,7 @@ mod test {
 
     impl ReaderCreator for MappedReaderCreator {
         // fn get_reader<'a>(&'a self) -> CapnpReader<'a> {
-        fn get_reader(& self) -> CapnpReader<'_> {
-        
+        fn get_reader(&self) -> CapnpReader<'_> {
             CapnpReader::Sliced(
                 serialize::read_message_from_words(
                     unsafe { Word::bytes_to_words(&self.mmap[..]) },
@@ -75,7 +73,7 @@ mod test {
     }
 
     impl ReaderCreator for OwnedReaderCreator {
-        fn get_reader(& self) -> CapnpReader<'_> {
+        fn get_reader(&self) -> CapnpReader<'_> {
             let mut file = File::open("test.bin").unwrap();
             CapnpReader::Owned(
                 serialize::read_message(&mut file, ::capnp::message::ReaderOptions::new()).unwrap(),
@@ -87,7 +85,6 @@ mod test {
         print_asset_bundle(*reader.get_root::<asset_bundle::Reader>())
     }
 
-
     pub fn test_new_try_with_traits(switch: bool) -> capnp::Result<()> {
         let creator = if switch {
             Box::new(MappedReaderCreator::new()) as Box<ReaderCreator>
@@ -97,7 +94,6 @@ mod test {
 
         test_reader2(&creator.get_reader())
     }
-
 
     pub fn print_asset_bundle(asset_bundle: asset_bundle::Reader) -> capnp::Result<()> {
         for asset in asset_bundle.get_assets()?.iter() {
@@ -127,8 +123,6 @@ mod test {
         Ok(())
     }
 }
-
-
 
 fn main() {
     println!("Hello, world!");
