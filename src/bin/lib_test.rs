@@ -6,14 +6,14 @@ use capnp_test::asset_bundle::AssetRef;
 
 
 fn main() {
-	let bundle = capnp_test::asset_bundle::AssetBundleFile::open("test.bin"); 
-	let access = bundle.access();
-	//let bundle = capnp_test::asset_bundle::MappedBundle::open("test.bin");
-
+	// let bundle = capnp_test::asset_bundle::AssetBundleFile::open("test.bin"); 
+	// let access = bundle.access();
+	// //let bundle = capnp_test::asset_bundle::MappedBundle::open("test.bin");
+	let access = capnp_test::asset_bundle::owned_access("test.bin");
 	{
-		// let r = access.get_by_name2("model/test/map_color_2.png");
+		let r = access.get_by_name("model/test/map_color_2.png");
 		// access.bla();
-	// println!("{}", r.get_header().unwrap().get_name().unwrap());
+		println!("{}", r.get_header().unwrap().get_name().unwrap());
 	}
 	// drop(r);
 

@@ -22,10 +22,8 @@ pub mod asset_bundle {
 		fn get<'a>(&'a self) -> asset::Reader<'a>;
 	}
 
-	pub trait AssetBundleAccess<'a> {
-		fn get_by_name( &'a self, name : &str ) -> asset::Reader<'a>;
-		fn get_by_name2(&'a self, name : &str) -> Box<AssetRef + 'a>;
-		fn bla(&'a self);
+	pub trait AssetBundleAccess {
+		fn get_by_name<'a>( &'a self, name : &str ) -> asset::Reader<'a>;
 	}
 
 	struct MappedBundleAssetRef<'a> {
@@ -39,13 +37,13 @@ pub mod asset_bundle {
 		}
 	}
 
-	pub struct MappedBundle<'a> {
+	struct MappedBundle<'a> {
 		message : capnp::message::Reader<capnp::serialize::SliceSegments<'a>>,
 	}
 
 	
-	impl<'a> AssetBundleAccess<'a> for MappedBundle<'a> {
-		fn get_by_name( &'a self, name : &str ) -> asset::Reader<'a> {
+	impl AssetBundleAccess for MappedBundle<'_> {
+		fn get_by_name<'a>( &'a self, name : &str ) -> asset::Reader<'a> {
             let mut index = -1;
             let asset_bundle = self.message.get_root::<asset_bundle::Reader>().unwrap();
             
@@ -65,13 +63,6 @@ pub mod asset_bundle {
 			assets.get(index as u32)            
 
 		}
-
-		fn get_by_name2( &'a self, _name : &str ) -> Box<AssetRef + 'a> {
-    		Box::new(MappedBundleAssetRef { reader : &self.message, index : 0 } )         
-		}
-		fn bla( &'a self ) {
-			
-		}
 	}
 
 	pub struct AssetBundleFile {
@@ -84,7 +75,7 @@ pub mod asset_bundle {
             AssetBundleFile{ map : map }
 		}
 
-		pub fn access<'a>(&'a self) -> impl AssetBundleAccess<'a> + 'a {
+		pub fn access<'a>(&'a self) -> impl AssetBundleAccess + 'a {
 			let msg = serialize::read_message_from_words(
                 unsafe { Word::bytes_to_words(&self.map[..]) },
                 ::capnp::message::ReaderOptions::new(),
@@ -94,4 +85,38 @@ pub mod asset_bundle {
 		}
 	}
 
+
+	pub struct OwnedAssetBundle {
+		message : capnp::message::Reader<capnp::serialize::OwnedSegments>
+	}
+	impl AssetBundleAccess for OwnedAssetBundle {
+		fn get_by_name<'a>( &'a self, name : &str ) -> asset::Reader<'a> {
+            let mut index = -1;
+            let asset_bundle = self.message.get_root::<asset_bundle::Reader>().unwrap();
+            
+            let headers = asset_bundle.get_index().unwrap().get_headers().unwrap();
+
+            for (i, header) in headers.iter().enumerate() {
+            	if header.get_name().unwrap() == name {
+            		index = i as isize;
+            	}
+            }
+
+            if index == -1 {
+            	panic!("not found");
+            }
+
+            let assets = asset_bundle.get_assets().unwrap();
+			assets.get(index as u32)            
+
+		}	
+
+
+	}
+
+	pub fn owned_access<P : AsRef<Path>>(path : P) -> impl AssetBundleAccess {
+		let mut file = File::open(path).unwrap();
+
+		OwnedAssetBundle{message : capnp::serialize::read_message(&mut file, ::capnp::message::ReaderOptions::new()).unwrap()}
+	}
 }

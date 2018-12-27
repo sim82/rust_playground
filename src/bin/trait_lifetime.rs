@@ -1,19 +1,19 @@
-trait TestTrait<'a> {
-	fn get( &'a self ) -> &'a u32;
+trait TestTrait {
+	fn get<'a>( &'a self ) -> &'a u32;
 }
 
 struct Test<'a> {
 	x : &'a u32
 }
 
-impl<'a> TestTrait<'a> for Test<'a> {
-	fn get(&'a self) -> &'a u32 {
+impl TestTrait for Test<'_> {
+	fn get<'a>(&'a self) -> &'a u32 {
 		self.x
 	}
 }
 
 
-fn create_test<'a>( i : &'a u32) -> Box<TestTrait<'a> + 'a> {
+fn create_test<'a>( i : &'a u32) -> Box<TestTrait + 'a> {
 	Box::new(Test{ x : i })
 }
 
