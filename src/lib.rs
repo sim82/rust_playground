@@ -1,5 +1,6 @@
 extern crate capnp;
 extern crate memmap;
+extern crate custom_error;
 
 pub mod asset_capnp {
     include!(concat!(env!("OUT_DIR"), "/capnp/asset_capnp.rs"));
@@ -16,6 +17,11 @@ pub mod asset_bundle {
     use std::fs::File;
     use std::path::Path;
 
+    custom_error::custom_error! { pub Error
+    	Io{ source : std::io::Error } = "unable to read file",
+    	Capnp{ source : capnp::Error } = "capnp error",
+    }
+
     pub trait AssetBundleAccess {
         fn get_names<'a>(&'a self) -> Vec<&'a str>;
         fn get_by_name<'a>(&'a self, name: &str) -> asset::Reader<'a>;
@@ -25,6 +31,8 @@ pub mod asset_bundle {
         message: capnp::message::Reader<T>,
         map: std::collections::HashMap<String, u32>,
     }
+
+    pub type Result<T> = std::result::Result<T, Error>;
 
     impl<T: capnp::message::ReaderSegments> AssetBundleAccess for IndexCache<T> {
         fn get_names<'a>(&'a self) -> Vec<&'a str> {
@@ -66,27 +74,27 @@ pub mod asset_bundle {
     }
 
     impl AssetBundleFile {
-        pub fn open<P: AsRef<Path>>(path: P) -> AssetBundleFile {
-            let file = File::open(path).unwrap();
-            let map = unsafe { MmapOptions::new().map(&file).unwrap() };
-            AssetBundleFile { map: map }
+        pub fn open<P: AsRef<Path>>(path: P) -> Result<AssetBundleFile> {
+            let file = File::open(path)?;
+            let map = unsafe { MmapOptions::new().map(&file)? };
+            Ok(AssetBundleFile { map: map })
         }
 
-        pub fn access<'a>(&'a self) -> impl AssetBundleAccess + 'a {
+        pub fn access<'a>(&'a self) -> Result<impl AssetBundleAccess + 'a> {
             let msg = serialize::read_message_from_words(
                 unsafe { Word::bytes_to_words(&self.map[..]) },
                 ::capnp::message::ReaderOptions::new(),
-            )
-            .unwrap();
-            index_cache(msg)
+            )?;
+
+            Ok(index_cache(msg))
         }
     }
 
-    pub fn owned_access<P: AsRef<Path>>(path: P) -> impl AssetBundleAccess {
-        let mut file = File::open(path).unwrap();
-        index_cache(
-            capnp::serialize::read_message(&mut file, ::capnp::message::ReaderOptions::new())
-                .unwrap(),
-        )
+    pub fn owned_access<P: AsRef<Path>>(path: P) -> Result<impl AssetBundleAccess> {
+        let mut file = File::open(path)?;
+        Ok(index_cache(
+            capnp::serialize::read_message(&mut file, ::capnp::message::ReaderOptions::new())?
+                
+        ))
     }
 }
