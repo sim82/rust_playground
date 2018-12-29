@@ -13,7 +13,7 @@ mod test {
     use memmap::MmapOptions;
     use std::fs::File;
 
-    use asset_capnp::{asset, asset_bundle, asset_pixel_data};
+    use crate::asset_capnp::{asset, asset_bundle, asset_pixel_data};
     use capnp::serialize;
     use capnp::Word;
 

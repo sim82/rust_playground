@@ -40,7 +40,7 @@ fn main() {
     println!("Hello, world!");
 
     let v: u32 = 123;
-    let o = create_outer(&v);
+    let _o = create_outer(&v);
     // let i = o.get();
     // i.bla();
 }
