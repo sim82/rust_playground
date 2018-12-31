@@ -35,26 +35,52 @@ pub fn print_asset(asset: asset::Reader) -> capnp::Result<()> {
 
 fn test(_switch: bool) -> capnp_test::asset_bundle::Result<()> {
     let bundle = capnp_test::asset_bundle::AssetBundleFile::open("test.bin")?;
-    let access = bundle.access()?;
+    // let access = bundle.access()?;
     // let access = capnp_test::asset_bundle::owned_access("test.bin")?;
+    //let access = capnp_test::asset_bundle::directory_access("/home/sim/tmp/shadermesh_assets")?;
     {
-        for (name, i) in access.get_names() {
-            println!("{}:", name);
-            let r = access.get(i)?;
-            print_asset(r);
+        let access = capnp_test::asset_bundle::multi_access(vec![
+            Box::new(capnp_test::asset_bundle::directory_access(
+                "/home/sim/tmp/shadermesh_assets",
+            )?),
+            Box::new(bundle.access()?),
+        ])?;
+        {
+            for (name, i) in access.get_names() {
+                println!("{}:", name);
+                if let Ok(r) = access.get(&i) {
+                    print_asset(r)?;
+                }
+            }
+            if let Ok(r) = access.get_by_name("model/test/map_color_2.png") {
+                // access.bla();
+                println!("{}", r.get_header()?.get_name()?);
+            }
         }
-        let r = access.get_by_name("model/test/map_color_2.png")?;
-        // access.bla();
-        println!("{}", r.get_header()?.get_name()?);
     }
 
     Ok(())
 }
 
-fn main() {
-    match test(true) {
-        Err(r) => println!("error: {}", r),
-        _ => {}
+fn test_mesh() -> capnp_test::asset_bundle::Result<()> {
+    let access = capnp_test::asset_bundle::directory_access("/home/sim/tmp/shadermesh_assets")?;
+
+    for r in access.iter_by_type(capnp_test::asset_bundle::AssetType::MeshData)? {
+        print_asset(r)?;
     }
+    Ok(())
+}
+
+fn main() {
+    // match test(true) {
+    //     Err(r) => println!("error: {}", r),
+    //     _ => {}
+    // }
+    test(true).unwrap();
+
+    // match test_mesh() {
+    //     Err(r) => println!("error: {}", r),
+    //     _ => {}
+    // }
     // drop(r);
 }
