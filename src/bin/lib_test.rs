@@ -1,10 +1,11 @@
 //extern crate asset_bundle;
+#![allow(dead_code)]
 
 extern crate capnp;
 extern crate capnp_test;
 
 use capnp_test::asset_bundle::AssetBundleAccess;
-use capnp_test::asset_capnp::{asset, asset_bundle, asset_pixel_data};
+use capnp_test::asset_capnp::{asset, asset_pixel_data};
 
 pub fn print_asset(asset: asset::Reader) -> capnp::Result<()> {
     println!("name: {}", asset.get_header()?.get_name()?);
@@ -61,7 +62,6 @@ fn test(_switch: bool) -> capnp_test::asset_bundle::Result<()> {
 
     Ok(())
 }
-
 fn test_mesh() -> capnp_test::asset_bundle::Result<()> {
     let access = capnp_test::asset_bundle::directory_access("/home/sim/tmp/shadermesh_assets")?;
 

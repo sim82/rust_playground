@@ -26,7 +26,7 @@ pub mod asset_bundle {
         NotImplemented = "Not implemented",
     }
 
-    #[derive(PartialEq)]
+    #[derive(PartialEq, Clone)]
     pub enum AssetType {
         PixelData,
         PcmData,
@@ -163,7 +163,7 @@ pub mod asset_bundle {
     }
 
     struct AssetBundleDirectory {
-        path: PathBuf,
+        // path: PathBuf,
         id_map: std::collections::HashMap<Uuid, message::Reader<serialize::OwnedSegments>>,
         name_map: std::collections::HashMap<String, Uuid>,
     }
@@ -264,7 +264,7 @@ pub mod asset_bundle {
             .collect();
 
         Ok(AssetBundleDirectory {
-            path: PathBuf::from(path.as_ref()),
+            // path: PathBuf::from(path.as_ref()),
             id_map: id_map,
             name_map: name_map,
         })
@@ -274,7 +274,9 @@ pub mod asset_bundle {
         bundles: Vec<Box<AssetBundleAccess + 'a>>,
     }
 
-    pub fn multi_access<'a>(v: Vec<Box<AssetBundleAccess + 'a>>) -> Result<impl AssetBundleAccess + 'a> {
+    pub fn multi_access<'a>(
+        v: Vec<Box<AssetBundleAccess + 'a>>,
+    ) -> Result<impl AssetBundleAccess + 'a> {
         Ok(AssetBundleMulti { bundles: v })
     }
 
@@ -283,17 +285,31 @@ pub mod asset_bundle {
             Box::new(self.bundles.iter().flat_map(|it| it.get_names()))
         }
         fn get<'a>(&'a self, id: &Uuid) -> Result<asset::Reader<'a>> {
-            Err(Error::NotImplemented)
+            for bundle in &self.bundles {
+                match bundle.get(id) {
+                    Ok(r) => return Ok(r),
+                    _ => continue,
+                }
+            }
+            Err(Error::NotFound)
         }
 
         fn get_by_name<'a>(&'a self, name: &str) -> Result<asset::Reader<'a>> {
-            Err(Error::NotImplemented)
+            for bundle in &self.bundles {
+                match bundle.get_by_name(name) {
+                    Ok(r) => return Ok(r),
+                    _ => continue,
+                }
+            }
+            Err(Error::NotFound)
         }
         fn iter_by_type<'a>(
             &'a self,
             asset_type: AssetType,
         ) -> Result<Box<Iterator<Item = asset::Reader<'a>> + 'a>> {
-            Err(Error::NotImplemented)
+            Ok(Box::new(self.bundles.iter().flat_map(move |it| {
+                it.iter_by_type(asset_type.clone()).unwrap()
+            })))
         }
     }
 }
