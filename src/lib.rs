@@ -34,11 +34,18 @@ pub mod asset_bundle {
         MeshData,
     }
 
+    /// acces to an abstract asset bundle
     pub trait AssetBundleAccess {
+        /// Iterate over name -> uuid mapping
         fn get_names<'a>(&'a self) -> Box<Iterator<Item = (&str, Uuid)> + 'a>;
+
+        /// get asser reader by uuid
         fn get<'a>(&'a self, id: &Uuid) -> Result<asset::Reader<'a>>;
 
+        /// get asset reader by name
         fn get_by_name<'a>(&'a self, name: &str) -> Result<asset::Reader<'a>>;
+
+        /// iterate over all assets of a specific type
         fn iter_by_type<'a>(
             &'a self,
             asset_type: AssetType,

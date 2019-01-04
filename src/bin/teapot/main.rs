@@ -7,46 +7,66 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
+extern crate capnp_test;
+extern crate cgmath;
 extern crate vulkano;
 extern crate vulkano_shaders;
 extern crate vulkano_win;
 extern crate winit;
-extern crate cgmath;
 mod data;
 
 use vulkano::buffer::cpu_pool::CpuBufferPool;
-use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
+use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer, ImmutableBuffer};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::device::{Device, DeviceExtensions};
 use vulkano::format::Format;
-use vulkano::framebuffer::{Framebuffer, FramebufferAbstract, Subpass, RenderPassAbstract};
-use vulkano::image::SwapchainImage;
+use vulkano::framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass};
 use vulkano::image::attachment::AttachmentImage;
+use vulkano::image::SwapchainImage;
+use vulkano::impl_vertex;
 use vulkano::instance::Instance;
 use vulkano::instance::PhysicalDevice;
 use vulkano::pipeline::vertex::TwoBuffersDefinition;
 use vulkano::pipeline::viewport::Viewport;
 use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
-use vulkano::swapchain::{AcquireError, PresentMode, SurfaceTransform, Swapchain, SwapchainCreationError};
 use vulkano::swapchain;
-use vulkano::sync::GpuFuture;
+use vulkano::swapchain::{
+    AcquireError, PresentMode, SurfaceTransform, Swapchain, SwapchainCreationError,
+};
 use vulkano::sync;
-use vulkano::impl_vertex;
+use vulkano::sync::GpuFuture;
 use vulkano_win::VkSurfaceBuild;
 
 use winit::Window;
 
-use cgmath::{Matrix3, Matrix4, Point3, Vector3, Rad};
+use cgmath::{Matrix3, Matrix4, Point3, Rad, Vector3};
 
-use data::{Vertex, Normal, VERTICES, NORMALS, INDICES};
+use data::{Normal, Vertex, INDICES, NORMALS, VERTICES};
 
 use std::iter;
 use std::sync::Arc;
 use std::time::Instant;
 
+use capnp_test::asset_bundle;
+use capnp_test::asset_bundle::AssetBundleAccess;
+use capnp_test::asset_capnp;
+use capnp_test::asset_capnp::{asset, asset_mesh_data};
 
+fn get_mesh_assets() {
+    let access =
+        capnp_test::asset_bundle::directory_access("/home/sim/tmp/shadermesh_assets").unwrap();
 
+    for reader in access
+        .iter_by_type(asset_bundle::AssetType::MeshData)
+        .unwrap()
+    {
+        match reader.which() {
+            Ok(asset_capnp::asset::MeshData(r)) => {}
+            _ => continue,
+        }
+    }
+}
 
 fn main() {
     // The start of this example is exactly the same as `triangle`. You should read the
@@ -56,10 +76,16 @@ fn main() {
     let instance = Instance::new(None, &extensions, None).unwrap();
 
     let physical = PhysicalDevice::enumerate(&instance).next().unwrap();
-    println!("Using device: {} (type: {:?})", physical.name(), physical.ty());
+    println!(
+        "Using device: {} (type: {:?})",
+        physical.name(),
+        physical.ty()
+    );
 
     let mut events_loop = winit::EventsLoop::new();
-    let surface = winit::WindowBuilder::new().build_vk_surface(&events_loop, instance.clone()).unwrap();
+    let surface = winit::WindowBuilder::new()
+        .build_vk_surface(&events_loop, instance.clone())
+        .unwrap();
     let window = surface.window();
 
     // unlike the triangle example we need to keep track of the width and height so we can calculate
@@ -71,15 +97,23 @@ fn main() {
         return;
     };
 
-    let queue_family = physical.queue_families().find(|&q|
-        q.supports_graphics() && surface.is_supported(q).unwrap_or(false)
-    ).unwrap();
+    let queue_family = physical
+        .queue_families()
+        .find(|&q| q.supports_graphics() && surface.is_supported(q).unwrap_or(false))
+        .unwrap();
 
-    let device_ext = DeviceExtensions { khr_swapchain: true, .. DeviceExtensions::none() };
+    let device_ext = DeviceExtensions {
+        khr_swapchain: true,
+        ..DeviceExtensions::none()
+    };
 
     let (device, mut queues) = Device::new(
-        physical, physical.supported_features(), &device_ext, [(queue_family, 0.5)].iter().cloned()
-    ).unwrap();
+        physical,
+        physical.supported_features(),
+        &device_ext,
+        [(queue_family, 0.5)].iter().cloned(),
+    )
+    .unwrap();
 
     let queue = queues.next().unwrap();
 
@@ -89,18 +123,52 @@ fn main() {
         let format = caps.supported_formats[0].0;
         let alpha = caps.supported_composite_alpha.iter().next().unwrap();
 
-        Swapchain::new(device.clone(), surface.clone(), caps.min_image_count, format, dimensions, 1,
-            usage, &queue, SurfaceTransform::Identity, alpha, PresentMode::Fifo, true, None).unwrap()
+        Swapchain::new(
+            device.clone(),
+            surface.clone(),
+            caps.min_image_count,
+            format,
+            dimensions,
+            1,
+            usage,
+            &queue,
+            SurfaceTransform::Identity,
+            alpha,
+            PresentMode::Fifo,
+            true,
+            None,
+        )
+        .unwrap()
     };
 
     let vertices = VERTICES.iter().cloned();
-    let vertex_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), vertices).unwrap();
+    let mut vx = Vec::<f32>::new();
+
+    for v in VERTICES.iter() {
+        vx.push(v.position.0 / 100.0);
+        vx.push(v.position.1 / 100.0);
+        vx.push(v.position.2 / 100.0);
+    }
+
+    //let vertex_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), vertices).unwrap();
+    // let (vertex_buffer, vb_future) = ImmutableBuffer::from_iter(vertices, BufferUsage::all(), queue.clone()).unwrap();
+    let (vertex_buffer, vb_future) =
+        ImmutableBuffer::from_iter(vx.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
 
     let normals = NORMALS.iter().cloned();
-    let normals_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), normals).unwrap();
+    let (normals_buffer, nb_future) =
+        ImmutableBuffer::from_iter(normals, BufferUsage::all(), queue.clone()).unwrap();
 
     let indices = INDICES.iter().cloned();
-    let index_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), indices).unwrap();
+    let (index_buffer, ib_future) =
+        ImmutableBuffer::from_iter(indices, BufferUsage::all(), queue.clone()).unwrap();
+
+    let fence_signal = Arc::new(
+        vb_future
+            .join(nb_future.join(ib_future))
+            .then_signal_fence_and_flush()
+            .unwrap(),
+    );
 
     let uniform_buffer = CpuBufferPool::<vs::ty::Data>::new(device.clone(), BufferUsage::all());
 
@@ -127,21 +195,27 @@ fn main() {
                 color: [color],
                 depth_stencil: {depth}
             }
-        ).unwrap()
+        )
+        .unwrap(),
     );
 
-    let (mut pipeline, mut framebuffers) = window_size_dependent_setup(device.clone(), &vs, &fs, &images, render_pass.clone());
+    let (mut pipeline, mut framebuffers) =
+        window_size_dependent_setup(device.clone(), &vs, &fs, &images, render_pass.clone());
     let mut recreate_swapchain = false;
 
+    // let mut previous_frame = Box::new(vb_future.join(nb_future.join(ib_future))) as Box<GpuFuture>;//Box::new(sync::now(device.clone())) as Box<GpuFuture>;
     let mut previous_frame = Box::new(sync::now(device.clone())) as Box<GpuFuture>;
     let rotation_start = Instant::now();
+
+    fence_signal.wait(None).unwrap();
 
     loop {
         previous_frame.cleanup_finished();
 
         if recreate_swapchain {
             dimensions = if let Some(dimensions) = window.get_inner_size() {
-                let dimensions: (u32, u32) = dimensions.to_physical(window.get_hidpi_factor()).into();
+                let dimensions: (u32, u32) =
+                    dimensions.to_physical(window.get_hidpi_factor()).into();
                 [dimensions.0, dimensions.1]
             } else {
                 return;
@@ -150,11 +224,17 @@ fn main() {
             let (new_swapchain, new_images) = match swapchain.recreate_with_dimension(dimensions) {
                 Ok(r) => r,
                 Err(SwapchainCreationError::UnsupportedDimensions) => continue,
-                Err(err) => panic!("{:?}", err)
+                Err(err) => panic!("{:?}", err),
             };
             swapchain = new_swapchain;
 
-            let (new_pipeline, new_framebuffers) = window_size_dependent_setup(device.clone(), &vs, &fs, &new_images, render_pass.clone());
+            let (new_pipeline, new_framebuffers) = window_size_dependent_setup(
+                device.clone(),
+                &vs,
+                &fs,
+                &new_images,
+                render_pass.clone(),
+            );
             pipeline = new_pipeline;
             framebuffers = new_framebuffers;
 
@@ -163,15 +243,21 @@ fn main() {
 
         let uniform_buffer_subbuffer = {
             let elapsed = rotation_start.elapsed();
-            let rotation = elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 / 1_000_000_000.0;
+            let rotation =
+                elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 / 1_000_000_000.0;
             let rotation = Matrix3::from_angle_y(Rad(rotation as f32));
 
             // note: this teapot was meant for OpenGL where the origin is at the lower left
             //       instead the origin is at the upper left in Vulkan, so we reverse the Y axis
             let aspect_ratio = dimensions[0] as f32 / dimensions[1] as f32;
-            let proj = cgmath::perspective(Rad(std::f32::consts::FRAC_PI_2), aspect_ratio, 0.01, 100.0);
-            let view = Matrix4::look_at(Point3::new(0.3, 0.3, 1.0), Point3::new(0.0, 0.0, 0.0), Vector3::new(0.0, -1.0, 0.0));
-            let scale = Matrix4::from_scale(0.01);
+            let proj =
+                cgmath::perspective(Rad(std::f32::consts::FRAC_PI_2), aspect_ratio, 0.01, 100.0);
+            let view = Matrix4::look_at(
+                Point3::new(1.3, 1.3, 1.0),
+                Point3::new(0.0, 0.0, 0.0),
+                Vector3::new(0.0, -1.0, 0.0),
+            );
+            let scale = Matrix4::from_scale(1.00);
 
             let uniform_data = vs::ty::Data {
                 world: Matrix4::from(rotation).into(),
@@ -182,38 +268,51 @@ fn main() {
             uniform_buffer.next(uniform_data).unwrap()
         };
 
-        let set = Arc::new(PersistentDescriptorSet::start(pipeline.clone(), 0)
-            .add_buffer(uniform_buffer_subbuffer).unwrap()
-            .build().unwrap()
+        let set = Arc::new(
+            PersistentDescriptorSet::start(pipeline.clone(), 0)
+                .add_buffer(uniform_buffer_subbuffer)
+                .unwrap()
+                .build()
+                .unwrap(),
         );
 
-        let (image_num, acquire_future) = match swapchain::acquire_next_image(swapchain.clone(), None) {
-            Ok(r) => r,
-            Err(AcquireError::OutOfDate) => {
-                recreate_swapchain = true;
-                continue;
-            }
-            Err(err) => panic!("{:?}", err)
-        };
+        let (image_num, acquire_future) =
+            match swapchain::acquire_next_image(swapchain.clone(), None) {
+                Ok(r) => r,
+                Err(AcquireError::OutOfDate) => {
+                    recreate_swapchain = true;
+                    continue;
+                }
+                Err(err) => panic!("{:?}", err),
+            };
 
-        let command_buffer = AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family()).unwrap()
-            .begin_render_pass(
-                framebuffers[image_num].clone(), false,
-                vec![
-                    [0.0, 0.0, 1.0, 1.0].into(),
-                    1f32.into()
-                ]
-            ).unwrap()
-            .draw_indexed(
-                pipeline.clone(),
-                &DynamicState::none(),
-                vec!(vertex_buffer.clone(), normals_buffer.clone()),
-                index_buffer.clone(), set.clone(), ()).unwrap()
-            .end_render_pass().unwrap()
-            .build().unwrap();
+        let command_buffer =
+            AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family())
+                .unwrap()
+                .begin_render_pass(
+                    framebuffers[image_num].clone(),
+                    false,
+                    vec![[0.0, 0.0, 1.0, 1.0].into(), 1f32.into()],
+                )
+                .unwrap()
+                .draw_indexed(
+                    pipeline.clone(),
+                    &DynamicState::none(),
+                    vec![vertex_buffer.clone(), normals_buffer.clone()],
+                    index_buffer.clone(),
+                    set.clone(),
+                    (),
+                )
+                .unwrap()
+                .end_render_pass()
+                .unwrap()
+                .build()
+                .unwrap();
 
-        let future = previous_frame.join(acquire_future)
-            .then_execute(queue.clone(), command_buffer).unwrap()
+        let future = previous_frame
+            .join(acquire_future)
+            .then_execute(queue.clone(), command_buffer)
+            .unwrap()
             .then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
             .then_signal_fence_and_flush();
 
@@ -232,14 +331,20 @@ fn main() {
         }
 
         let mut done = false;
-        events_loop.poll_events(|ev| {
-            match ev {
-                winit::Event::WindowEvent { event: winit::WindowEvent::CloseRequested, .. } => done = true,
-                winit::Event::WindowEvent { event: winit::WindowEvent::Resized(_), .. } => recreate_swapchain = true,
-                _ => ()
-            }
+        events_loop.poll_events(|ev| match ev {
+            winit::Event::WindowEvent {
+                event: winit::WindowEvent::CloseRequested,
+                ..
+            } => done = true,
+            winit::Event::WindowEvent {
+                event: winit::WindowEvent::Resized(_),
+                ..
+            } => recreate_swapchain = true,
+            _ => (),
         });
-        if done { return; }
+        if done {
+            return;
+        }
     }
 }
 
@@ -250,54 +355,65 @@ fn window_size_dependent_setup(
     fs: &fs::Shader,
     images: &[Arc<SwapchainImage<Window>>],
     render_pass: Arc<RenderPassAbstract + Send + Sync>,
-) -> (Arc<GraphicsPipelineAbstract + Send + Sync>, Vec<Arc<FramebufferAbstract + Send + Sync>> ) {
+) -> (
+    Arc<GraphicsPipelineAbstract + Send + Sync>,
+    Vec<Arc<FramebufferAbstract + Send + Sync>>,
+) {
     let dimensions = images[0].dimensions();
 
-    let depth_buffer = AttachmentImage::transient(device.clone(), dimensions, Format::D16Unorm).unwrap();
+    let depth_buffer =
+        AttachmentImage::transient(device.clone(), dimensions, Format::D16Unorm).unwrap();
 
-    let framebuffers = images.iter().map(|image| {
-        Arc::new(
-            Framebuffer::start(render_pass.clone())
-                .add(image.clone()).unwrap()
-                .add(depth_buffer.clone()).unwrap()
-                .build().unwrap()
-        ) as Arc<FramebufferAbstract + Send + Sync>
-    }).collect::<Vec<_>>();
+    let framebuffers = images
+        .iter()
+        .map(|image| {
+            Arc::new(
+                Framebuffer::start(render_pass.clone())
+                    .add(image.clone())
+                    .unwrap()
+                    .add(depth_buffer.clone())
+                    .unwrap()
+                    .build()
+                    .unwrap(),
+            ) as Arc<FramebufferAbstract + Send + Sync>
+        })
+        .collect::<Vec<_>>();
 
     // In the triangle example we use a dynamic viewport, as its a simple example.
     // However in the teapot example, we recreate the pipelines with a hardcoded viewport instead.
     // This allows the driver to optimize things, at the cost of slower window resizes.
     // https://computergraphics.stackexchange.com/questions/5742/vulkan-best-way-of-updating-pipeline-viewport
-    let pipeline = Arc::new(GraphicsPipeline::start()
-        .vertex_input(TwoBuffersDefinition::<Vertex, Normal>::new())
-        .vertex_shader(vs.main_entry_point(), ())
-        .triangle_list()
-        .viewports_dynamic_scissors_irrelevant(1)
-        .viewports(iter::once(Viewport {
-            origin: [0.0, 0.0],
-            dimensions: [dimensions[0] as f32, dimensions[1] as f32],
-            depth_range: 0.0 .. 1.0,
-        }))
-        .fragment_shader(fs.main_entry_point(), ())
-        .depth_stencil_simple_depth()
-        .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-        .build(device.clone())
-        .unwrap());
+    let pipeline = Arc::new(
+        GraphicsPipeline::start()
+            .vertex_input(TwoBuffersDefinition::<Vertex, Normal>::new())
+            .vertex_shader(vs.main_entry_point(), ())
+            .triangle_list()
+            .viewports_dynamic_scissors_irrelevant(1)
+            .viewports(iter::once(Viewport {
+                origin: [0.0, 0.0],
+                dimensions: [dimensions[0] as f32, dimensions[1] as f32],
+                depth_range: 0.0..1.0,
+            }))
+            .fragment_shader(fs.main_entry_point(), ())
+            .depth_stencil_simple_depth()
+            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+            .build(device.clone())
+            .unwrap(),
+    );
 
     (pipeline, framebuffers)
 }
 
 mod vs {
-    vulkano_shaders::shader!{
+    vulkano_shaders::shader! {
         ty: "vertex",
         path: "src/bin/teapot/vert.glsl"
     }
 }
 
 mod fs {
-    vulkano_shaders::shader!{
+    vulkano_shaders::shader! {
         ty: "fragment",
         path: "src/bin/teapot/frag.glsl"
     }
 }
-
