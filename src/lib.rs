@@ -3,6 +3,8 @@ extern crate custom_error;
 extern crate memmap;
 extern crate uuid;
 
+pub mod crystal;
+
 pub mod asset_capnp {
     include!(concat!(env!("OUT_DIR"), "/capnp/asset_capnp.rs"));
 }
