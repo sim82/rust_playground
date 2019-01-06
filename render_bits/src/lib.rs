@@ -1,3 +1,12 @@
+// Copyright (c) 2016 The vulkano developers
+// Licensed under the Apache License, Version 2.0
+// <LICENSE-APACHE or
+// http://www.apache.org/licenses/LICENSE-2.0> or the MIT
+// license <LICENSE-MIT or http://opensource.org/licenses/MIT>,
+// at your option. All files in the project carrying such
+// notice may not be copied, modified, or distributed except
+// according to those terms.
+
 extern crate capnp_test;
 extern crate cgmath;
 extern crate vulkano;
@@ -49,6 +58,22 @@ pub struct Normal {
 }
 
 impl_vertex!(Normal, normal);
+
+impl From<cgmath::Vector3<f32>> for Vertex {
+    fn from(v: cgmath::Vector3<f32>) -> Vertex {
+        Vertex {
+            position: (v.x, v.y, v.z),
+        }
+    }
+}
+
+impl From<cgmath::Vector3<f32>> for Normal {
+    fn from(v: cgmath::Vector3<f32>) -> Normal {
+        Normal {
+            normal: (v.x, v.y, v.z),
+        }
+    }
+}
 
 pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
     // The start of this example is exactly the same as `triangle`. You should read the
@@ -122,19 +147,12 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
         )
         .unwrap()
     };
-
-    let mut vx = Vec::<f32>::new();
-
-    for v in vertices.iter() {
-        vx.push(v.position.0 / 100.0);
-        vx.push(v.position.1 / 100.0);
-        vx.push(v.position.2 / 100.0);
-    }
-
     //let vertex_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), vertices).unwrap();
-    // let (vertex_buffer, vb_future) = ImmutableBuffer::from_iter(vertices, BufferUsage::all(), queue.clone()).unwrap();
     let (vertex_buffer, vb_future) =
-        ImmutableBuffer::from_iter(vx.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
+        ImmutableBuffer::from_iter(vertices.iter().cloned(), BufferUsage::all(), queue.clone())
+            .unwrap();
+    // let (vertex_buffer, vb_future) =
+    //     ImmutableBuffer::from_iter(vx.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
 
     let normals = normals.iter().cloned();
     let (normals_buffer, nb_future) =
@@ -234,7 +252,7 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
             let proj =
                 cgmath::perspective(Rad(std::f32::consts::FRAC_PI_2), aspect_ratio, 0.01, 100.0);
             let view = Matrix4::look_at(
-                Point3::new(1.3, 1.3, 1.0),
+                Point3::new(30.0, 30.0, 30.0),
                 Point3::new(0.0, 0.0, 0.0),
                 Vector3::new(0.0, -1.0, 0.0),
             );

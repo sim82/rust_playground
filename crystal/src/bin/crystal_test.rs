@@ -2,5 +2,5 @@
 // use crystal::crystal;
 
 fn main() {
-    crystal::read_map("hidden_ramp.txt");
+    crystal::read_map("hidden_ramp.txt").expect("could not read file");
 }

@@ -1,19 +1,14 @@
 extern crate cgmath;
 extern crate ndarray;
 
-use self::cgmath::Point3;
-use self::ndarray::Array3;
-
 use std::collections::hash_map;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::iter::Iterator;
 use std::path::Path;
-// pub struct Bitmap {
-//     size: Vec3i,
-//     bitmap: Vec<bool>,
-// }
+
+pub type BlockMap = ndarray::Array3<bool>;
 
 const NUM_PLANE_CORNERS: usize = 4;
 
@@ -28,7 +23,7 @@ trait Bitmap {
     fn step(&self, p: Point3i, dir: &Dir) -> Option<Point3i>;
 }
 
-impl Bitmap for Array3<bool> {
+impl Bitmap for BlockMap {
     fn set(&mut self, p: Point3i, v: bool) {
         // let c = self.coord(&p);
         self[[p.x as usize, p.y as usize, p.z as usize]] = v;
@@ -144,6 +139,7 @@ impl std::fmt::Display for DisplayWrap<[i32; 4]> {
     }
 }
 
+#[derive(Copy, Clone)]
 pub enum Dir {
     ZxPos,
     ZxNeg,
@@ -154,8 +150,18 @@ pub enum Dir {
 }
 
 impl Dir {
-    fn get_normal<T: From<i32>>(&self) -> cgmath::Vector3<T> {
-        let fromi = |x, y, z| cgmath::Vector3::<T>::new(T::from(x), T::from(y), T::from(z));
+    pub fn get_normal<T: num_traits::cast::FromPrimitive + num_traits::identities::Zero>(
+        &self,
+    ) -> cgmath::Vector3<T> {
+        let fromi = |x, y, z| {
+            if let (Some(fx), Some(fy), Some(fz)) = (T::from_i32(x), T::from_i32(y), T::from_i32(z))
+            {
+                cgmath::Vector3::<T>::new(fx, fy, fz)
+            } else {
+                cgmath::Vector3::<T>::new(T::zero(), T::zero(), T::zero())
+            }
+        };
+
         match self {
             Dir::ZxNeg => fromi(0, -1, 0),
             Dir::ZxPos => fromi(0, 1, 0),
@@ -230,6 +236,7 @@ pub struct Planes {
     vertices: HashMap<Point3i, i32>,
     num_vertices: i32,
     planes: Vec<[i32; NUM_PLANE_CORNERS]>,
+    dirs: Vec<Dir>,
 }
 
 impl Planes {
@@ -238,10 +245,11 @@ impl Planes {
             vertices: HashMap::new(),
             num_vertices: 0,
             planes: Vec::new(),
+            dirs: Vec::new(),
         }
     }
 
-    pub fn create_planes(&mut self, bitmap: &Array3<bool>) {
+    pub fn create_planes(&mut self, bitmap: &BlockMap) {
         for ((x, y, z), v) in bitmap.indexed_iter() {
             // println!("{} {} {}", x, y, z);
             if !v {
@@ -272,6 +280,7 @@ impl Planes {
                                     entry.insert(self.num_vertices);
                                     points[i] = self.num_vertices;
                                     self.num_vertices += 1;
+                                    self.dirs.push(*dir);
                                 }
                             }
                         }
@@ -282,7 +291,7 @@ impl Planes {
         }
     }
 
-    fn print(&self) {
+    pub fn print(&self) {
         let mut x: Vec<(&Point3i, &i32)> = self.vertices.iter().collect();
         x.sort_by_key(|(_, v)| *v);
 
@@ -293,6 +302,18 @@ impl Planes {
         for p in &self.planes {
             println!("{}", DisplayWrap::from(*p));
         }
+    }
+
+    pub fn vertex_iter(&self) -> impl Iterator<Item = (&Point3i, &i32)> {
+        self.vertices.iter()
+    }
+
+    pub fn dir_iter(&self) -> impl Iterator<Item = &Dir> {
+        self.dirs.iter()
+    }
+
+    pub fn planes_iter(&self) -> impl Iterator<Item = &[i32; NUM_PLANE_CORNERS]> {
+        self.planes.iter()
     }
 }
 
@@ -322,7 +343,7 @@ pub fn read_map_slice(reader: &mut std::io::BufRead, size: Vec2i) -> std::io::Re
     Ok(MapSlice(slice))
 }
 
-pub fn read_map<P: AsRef<Path>>(filename: P) -> std::io::Result<Array3<bool>> {
+pub fn read_map<P: AsRef<Path>>(filename: P) -> std::io::Result<BlockMap> {
     let file = File::open(filename)?;
 
     let mut reader = BufReader::new(file);
@@ -352,7 +373,7 @@ pub fn read_map<P: AsRef<Path>>(filename: P) -> std::io::Result<Array3<bool>> {
     // for i in 0..height {
 
     // }
-    let mut bm = Array3::default((width as usize, *max as usize, height as usize)); //Bitmap::new(width, *max, height);
+    let mut bm = BlockMap::default((width as usize, *max as usize, height as usize)); //Bitmap::new(width, *max, height);
     bm.add(&slice);
     bm.print();
 
