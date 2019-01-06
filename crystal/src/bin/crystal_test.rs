@@ -1,6 +1,5 @@
-extern crate capnp_test;
-
-use capnp_test::crystal;
+// extern crate crystal;
+// use crystal::crystal;
 
 fn main() {
     crystal::read_map("hidden_ramp.txt");

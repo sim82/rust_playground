@@ -130,23 +130,19 @@ impl<T> From<T> for DisplayWrap<T> {
 
 impl std::fmt::Display for DisplayWrap<Point3i> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        let DisplayWrap::<Point3i>(Point3i { x: x, y: y, z: z }) = self;
+        let DisplayWrap::<Point3i>(Point3i { x, y, z }) = self;
 
-        write!(f, "[{} {} {}]", x, y, z);
-        Ok(())
+        write!(f, "[{} {} {}]", x, y, z)
     }
 }
 
-
-impl std::fmt::Display for DisplayWrap<[i32;4]> {
+impl std::fmt::Display for DisplayWrap<[i32; 4]> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        let DisplayWrap::<[i32;4]>([i1,i2,i3,i4]) = self;
+        let DisplayWrap::<[i32; 4]>([i1, i2, i3, i4]) = self;
 
-        write!(f, "[{} {} {} {}]", i1, i2, i3, i4);
-        Ok(())
+        write!(f, "[{} {} {} {}]", i1, i2, i3, i4)
     }
 }
-
 
 pub enum Dir {
     ZxPos,
@@ -230,14 +226,14 @@ impl Cell for Point3i {
     }
 }
 
-struct Planes {
+pub struct Planes {
     vertices: HashMap<Point3i, i32>,
     num_vertices: i32,
     planes: Vec<[i32; NUM_PLANE_CORNERS]>,
 }
 
 impl Planes {
-    fn new() -> Planes {
+    pub fn new() -> Planes {
         Planes {
             vertices: HashMap::new(),
             num_vertices: 0,
@@ -245,8 +241,9 @@ impl Planes {
         }
     }
 
-    fn create_planes(&mut self, bitmap: &Array3<bool>) {
+    pub fn create_planes(&mut self, bitmap: &Array3<bool>) {
         for ((x, y, z), v) in bitmap.indexed_iter() {
+            // println!("{} {} {}", x, y, z);
             if !v {
                 continue;
             }
@@ -287,7 +284,7 @@ impl Planes {
 
     fn print(&self) {
         let mut x: Vec<(&Point3i, &i32)> = self.vertices.iter().collect();
-        x.sort_by_key(|(k, v)| *v);
+        x.sort_by_key(|(_, v)| *v);
 
         for (k, v) in x.iter() {
             println!("{}: {}", v, DisplayWrap::from(**k));
@@ -359,8 +356,5 @@ pub fn read_map<P: AsRef<Path>>(filename: P) -> std::io::Result<Array3<bool>> {
     bm.add(&slice);
     bm.print();
 
-    let mut planes = Planes::new();
-    planes.create_planes(&bm);
-    planes.print();
     Ok(bm)
 }

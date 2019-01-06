@@ -1,19 +1,9 @@
-// Copyright (c) 2016 The vulkano developers
-// Licensed under the Apache License, Version 2.0
-// <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT
-// license <LICENSE-MIT or http://opensource.org/licenses/MIT>,
-// at your option. All files in the project carrying such
-// notice may not be copied, modified, or distributed except
-// according to those terms.
-
 extern crate capnp_test;
 extern crate cgmath;
 extern crate vulkano;
 extern crate vulkano_shaders;
 extern crate vulkano_win;
 extern crate winit;
-mod data;
 
 use vulkano::buffer::cpu_pool::CpuBufferPool;
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer, ImmutableBuffer};
@@ -42,33 +32,25 @@ use winit::Window;
 
 use cgmath::{Matrix3, Matrix4, Point3, Rad, Vector3};
 
-use data::{Normal, Vertex, INDICES, NORMALS, VERTICES};
-
 use std::iter;
 use std::sync::Arc;
 use std::time::Instant;
 
-use capnp_test::asset_bundle;
-use capnp_test::asset_bundle::AssetBundleAccess;
-use capnp_test::asset_capnp;
-use capnp_test::asset_capnp::{asset, asset_mesh_data};
-
-fn get_mesh_assets() {
-    let access =
-        capnp_test::asset_bundle::directory_access("/home/sim/tmp/shadermesh_assets").unwrap();
-
-    for reader in access
-        .iter_by_type(asset_bundle::AssetType::MeshData)
-        .unwrap()
-    {
-        match reader.which() {
-            Ok(asset_capnp::asset::MeshData(r)) => {}
-            _ => continue,
-        }
-    }
+#[derive(Copy, Clone)]
+pub struct Vertex {
+    pub position: (f32, f32, f32),
 }
 
-fn main() {
+vulkano::impl_vertex!(Vertex, position);
+
+#[derive(Copy, Clone)]
+pub struct Normal {
+    pub normal: (f32, f32, f32),
+}
+
+impl_vertex!(Normal, normal);
+
+pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
     // The start of this example is exactly the same as `triangle`. You should read the
     // `triangle` example if you haven't done so yet.
 
@@ -141,10 +123,9 @@ fn main() {
         .unwrap()
     };
 
-    let vertices = VERTICES.iter().cloned();
     let mut vx = Vec::<f32>::new();
 
-    for v in VERTICES.iter() {
+    for v in vertices.iter() {
         vx.push(v.position.0 / 100.0);
         vx.push(v.position.1 / 100.0);
         vx.push(v.position.2 / 100.0);
@@ -155,11 +136,11 @@ fn main() {
     let (vertex_buffer, vb_future) =
         ImmutableBuffer::from_iter(vx.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
 
-    let normals = NORMALS.iter().cloned();
+    let normals = normals.iter().cloned();
     let (normals_buffer, nb_future) =
         ImmutableBuffer::from_iter(normals, BufferUsage::all(), queue.clone()).unwrap();
 
-    let indices = INDICES.iter().cloned();
+    let indices = indices.iter().cloned();
     let (index_buffer, ib_future) =
         ImmutableBuffer::from_iter(indices, BufferUsage::all(), queue.clone()).unwrap();
 
@@ -407,13 +388,13 @@ fn window_size_dependent_setup(
 mod vs {
     vulkano_shaders::shader! {
         ty: "vertex",
-        path: "src/bin/teapot/vert.glsl"
+        path: "src/debug_vert.glsl"
     }
 }
 
 mod fs {
     vulkano_shaders::shader! {
         ty: "fragment",
-        path: "src/bin/teapot/frag.glsl"
+        path: "src/debug_frag.glsl"
     }
 }

@@ -105,6 +105,38 @@ struct AttributeArrayInterleaved
     primitiveType @7 : PrimitiveType;
 }
 
+struct AttributeArray
+{
+    enum Type {
+        float32 @0;
+        int32 @1;
+        uint32 @2;
+        int16 @3;
+        uint16 @4;
+
+    }
+    enum PrimitiveType
+    {
+        trianglesCcw @0;
+        trianglesCw @1;
+    }
+    struct Attribute {
+        name @0 : Text;
+        type @1 : Type;
+        width @2 : Int32;
+    }
+
+    attributes @0 : List(Attribute);
+    numVertex @1 : Int32;
+    attributeArrays @2 : List(Data);
+
+    numIndex @3 : Int32;
+    indexType @4 : Type;
+    indexArray @5 : Data;
+
+    primitiveType @6 : PrimitiveType;
+}
+
 struct ShaderMesh {
     struct Stored {
         enum Type {
