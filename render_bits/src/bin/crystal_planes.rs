@@ -27,7 +27,8 @@ fn main() {
         .flat_map(|plane| {
             [plane[0], plane[1], plane[2], plane[0], plane[2], plane[3]]
                 .iter()
-                .map(|y| *y as u16).collect::<Vec<_>>()
+                .map(|y| *y as u16)
+                .collect::<Vec<_>>()
         })
         .collect();
     render_bits::render_test(&vertices[..], &normals[..], &indices[..]);

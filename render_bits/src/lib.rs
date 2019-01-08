@@ -9,6 +9,7 @@
 
 extern crate capnp_test;
 extern crate cgmath;
+extern crate num_traits;
 extern crate vulkano;
 extern crate vulkano_shaders;
 extern crate vulkano_win;
@@ -39,8 +40,10 @@ use vulkano_win::VkSurfaceBuild;
 
 use winit::Window;
 
-use cgmath::{Matrix3, Matrix4, Point3, Rad, Vector3};
+use cgmath::prelude::*;
+use cgmath::{Deg, Matrix3, Matrix4, Point3, Rad, Vector3, Vector4};
 
+use num_traits::clamp;
 use std::iter;
 use std::sync::Arc;
 use std::time::Instant;
@@ -72,6 +75,74 @@ impl From<cgmath::Vector3<f32>> for Normal {
         Normal {
             normal: (v.x, v.y, v.z),
         }
+    }
+}
+
+type Vec3 = Vector3<f32>;
+type Vec4 = Vector4<f32>;
+
+struct PlayerFlyModel {
+    lon: Deg<f32>,
+    lat: Deg<f32>,
+    pos: Point3<f32>,
+}
+struct InputState {
+    forward: bool,
+    backward: bool,
+    left: bool,
+    right: bool,
+}
+
+impl InputState {
+    fn new() -> Self {
+        InputState {
+            forward: false,
+            backward: false,
+            left: false,
+            right: false,
+        }
+    }
+}
+
+impl PlayerFlyModel {
+    fn new() -> Self {
+        PlayerFlyModel {
+            lon: Deg(0.0),
+            lat: Deg(0.0),
+            pos: Point3::origin(),
+        }
+    }
+
+    fn apply_delta_lon(&mut self, d: f32) {
+        self.lon += Deg(d);
+    }
+    fn apply_delta_lat(&mut self, d: f32) {
+        self.lat = num_traits::clamp(self.lat + Deg(d), Deg(-90.0), Deg(90.0));
+    }
+    fn get_rotation_lon(&self, neg: bool) -> Matrix4<f32> {
+        Matrix4::from_angle_y(if neg { -self.lon } else { self.lon })
+    }
+    fn get_rotation_lat(&self, neg: bool) -> Matrix4<f32> {
+        Matrix4::from_angle_x(if neg { -self.lat } else { self.lat })
+    }
+    fn apply_move_forward(&mut self, d: f32) {
+        self.pos += (self.get_rotation_lon(false)
+            * self.get_rotation_lat(false)
+            * Vec4::new(0.0, 0.0, -d, 0.0))
+        .truncate();
+    }
+    fn apply_move_right(&mut self, d: f32) {
+        self.pos += (self.get_rotation_lon(false)
+            * self.get_rotation_lat(false)
+            * Vec4::new(d, 0.0, 0.0, 0.0))
+        .truncate();
+    }
+    fn get_view_matrix(&self) -> Matrix4<f32> {
+        self.get_rotation_lat(true) * self.get_rotation_lon(true) * self.get_translation(true)
+    }
+    fn get_translation(&self, neg: bool) -> Matrix4<f32> {
+        // Matrix4::from_translation( Point3::<f32>::to_vec(self.pos) )
+        Matrix4::from_translation(self.pos.to_vec() * if neg { -1f32 } else { 1f32 })
     }
 }
 
@@ -208,6 +279,15 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
 
     fence_signal.wait(None).unwrap();
 
+    //let mut old_pos = winit::dpi::LogicalPosition::new();
+
+    let mut old_pos = None as Option<winit::dpi::LogicalPosition>;
+
+    let mut lon = 0.0f32;
+    let mut lat = 0.0f32;
+    let mut player_model = PlayerFlyModel::new();
+    let mut input_state = InputState::new();
+
     loop {
         previous_frame.cleanup_finished();
 
@@ -251,16 +331,35 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
             let aspect_ratio = dimensions[0] as f32 / dimensions[1] as f32;
             let proj =
                 cgmath::perspective(Rad(std::f32::consts::FRAC_PI_2), aspect_ratio, 0.01, 100.0);
-            let view = Matrix4::look_at(
-                Point3::new(30.0, 30.0, 30.0),
-                Point3::new(0.0, 0.0, 0.0),
-                Vector3::new(0.0, -1.0, 0.0),
-            );
+            // let view = Matrix4::look_at(
+            //     Point3::new(30.0, 30.0, 30.0),
+            //     Point3::new(0.0, 0.0, 0.0),
+            //     Vector3::new(0.0, -1.0, 0.0),
+            // );
+
+            let view = Matrix4::from_angle_x(Deg(lat))
+                * Matrix4::from_angle_y(Deg(lon))
+                * Matrix4::from_translation(Vector3::new(-30.0f32, -30.0f32, -30.0f32));
+
+            // let view = Matrix4::from
             let scale = Matrix4::from_scale(1.00);
 
+            if input_state.forward {
+                player_model.apply_move_forward(1.0 / 60.0);
+            }
+            if input_state.backward {
+                player_model.apply_move_forward(-1.0 / 60.0);
+            }
+            if input_state.left {
+                player_model.apply_move_right(-1.0 / 60.0);
+            }
+            if input_state.right {
+                player_model.apply_move_right(1.0 / 60.0);
+            }
+
             let uniform_data = vs::ty::Data {
-                world: Matrix4::from(rotation).into(),
-                view: (view * scale).into(),
+                world: <Matrix4<f32> as Transform<Point3<f32>>>::one().into(), // from(rotation).into(),
+                view: player_model.get_view_matrix().into(), //(view * scale).into(),
                 proj: proj.into(),
             };
 
@@ -339,6 +438,58 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
                 event: winit::WindowEvent::Resized(_),
                 ..
             } => recreate_swapchain = true,
+            winit::Event::WindowEvent {
+                event: winit::WindowEvent::CursorMoved { position: pos, .. },
+                ..
+            } => {
+                // println!("{} {}", pos.x, pos.y );
+
+                if let Some(op) = old_pos {
+                    let x = (pos.x - op.x) as f32;
+                    let y = (pos.y - op.y) as f32;
+
+                    player_model.apply_delta_lat(y);
+                    player_model.apply_delta_lon(x);
+
+                    lon += x;
+                    lat += y;
+
+                    lat = lat.max(-90.0f32).min(90.0f32);
+
+                    lon = if lon < 0.0f32 {
+                        lon + 360.0f32
+                    } else if lon >= 360.0f32 {
+                        lon - 360.0f32
+                    } else {
+                        lon
+                    };
+                    println!("{} {}", lon, lat);
+                }
+
+                old_pos = Some(pos);
+            }
+            winit::Event::WindowEvent {
+                event:
+                    winit::WindowEvent::KeyboardInput {
+                        input:
+                            winit::KeyboardInput {
+                                state,
+                                virtual_keycode: Some(keycode),
+                                ..
+                            },
+                        ..
+                    },
+                ..
+            } => {
+                let down = state == winit::ElementState::Pressed;
+                match keycode {
+                    winit::VirtualKeyCode::W => input_state.forward = down,
+                    winit::VirtualKeyCode::S => input_state.backward = down,
+                    winit::VirtualKeyCode::A => input_state.left = down,
+                    winit::VirtualKeyCode::D => input_state.right = down,
+                    _ => {}
+                }
+            }
             _ => (),
         });
         if done {
