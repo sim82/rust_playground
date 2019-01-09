@@ -119,30 +119,43 @@ impl PlayerFlyModel {
     fn apply_delta_lat(&mut self, d: f32) {
         self.lat = num_traits::clamp(self.lat + Deg(d), Deg(-90.0), Deg(90.0));
     }
-    fn get_rotation_lon(&self, neg: bool) -> Matrix4<f32> {
-        Matrix4::from_angle_y(if neg { -self.lon } else { self.lon })
+    fn get_rotation_lon(&self) -> Matrix4<f32> {
+        Matrix4::from_angle_y(self.lon)
     }
-    fn get_rotation_lat(&self, neg: bool) -> Matrix4<f32> {
-        Matrix4::from_angle_x(if neg { -self.lat } else { self.lat })
+    fn get_rotation_lat(&self) -> Matrix4<f32> {
+        Matrix4::from_angle_x(self.lat)
     }
     fn apply_move_forward(&mut self, d: f32) {
-        self.pos += (self.get_rotation_lon(false)
-            * self.get_rotation_lat(false)
-            * Vec4::new(0.0, 0.0, -d, 0.0))
-        .truncate();
+        self.pos +=
+            (self.get_rotation_lon() * self.get_rotation_lat() * Vec4::new(0.0, 0.0, d, 0.0))
+                .truncate();
     }
     fn apply_move_right(&mut self, d: f32) {
-        self.pos += (self.get_rotation_lon(false)
-            * self.get_rotation_lat(false)
-            * Vec4::new(d, 0.0, 0.0, 0.0))
-        .truncate();
+        self.pos +=
+            (self.get_rotation_lon() * self.get_rotation_lat() * Vec4::new(d, 0.0, 0.0, 0.0))
+                .truncate();
     }
     fn get_view_matrix(&self) -> Matrix4<f32> {
-        self.get_rotation_lat(true) * self.get_rotation_lon(true) * self.get_translation(true)
+        // (self.get_rotation_lat(true) * self.get_rotation_lon(true) * self.get_translation(true)).invert().unwrap()
+        (self.get_translation() * self.get_rotation_lon() * self.get_rotation_lat())
+            .invert()
+            .unwrap()
     }
-    fn get_translation(&self, neg: bool) -> Matrix4<f32> {
+    fn get_translation(&self) -> Matrix4<f32> {
         // Matrix4::from_translation( Point3::<f32>::to_vec(self.pos) )
-        Matrix4::from_translation(self.pos.to_vec() * if neg { -1f32 } else { 1f32 })
+        Matrix4::from_translation(self.pos.to_vec())
+    }
+}
+
+impl std::fmt::Debug for PlayerFlyModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(
+            f,
+            "pos: [{} {} {}] rot: {:?} {:?}",
+            self.pos.x, self.pos.y, self.pos.z, self.lon, self.lat
+        );
+
+        Ok(())
     }
 }
 
@@ -330,19 +343,8 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
             //       instead the origin is at the upper left in Vulkan, so we reverse the Y axis
             let aspect_ratio = dimensions[0] as f32 / dimensions[1] as f32;
             let proj =
-                cgmath::perspective(Rad(std::f32::consts::FRAC_PI_2), aspect_ratio, 0.01, 100.0);
-            // let view = Matrix4::look_at(
-            //     Point3::new(30.0, 30.0, 30.0),
-            //     Point3::new(0.0, 0.0, 0.0),
-            //     Vector3::new(0.0, -1.0, 0.0),
-            // );
-
-            let view = Matrix4::from_angle_x(Deg(lat))
-                * Matrix4::from_angle_y(Deg(lon))
-                * Matrix4::from_translation(Vector3::new(-30.0f32, -30.0f32, -30.0f32));
-
-            // let view = Matrix4::from
-            let scale = Matrix4::from_scale(1.00);
+                cgmath::perspective(Rad(std::f32::consts::FRAC_PI_2), aspect_ratio, 0.01, 100.0)
+                    * Matrix4::from_nonuniform_scale(1f32, 1f32, -1f32);
 
             if input_state.forward {
                 player_model.apply_move_forward(1.0 / 60.0);
@@ -356,6 +358,8 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
             if input_state.right {
                 player_model.apply_move_right(1.0 / 60.0);
             }
+
+            println!("{:?}", player_model);
 
             let uniform_data = vs::ty::Data {
                 world: <Matrix4<f32> as Transform<Point3<f32>>>::one().into(), // from(rotation).into(),
@@ -463,7 +467,7 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
                     } else {
                         lon
                     };
-                    println!("{} {}", lon, lat);
+                    // println!("{} {}", lon, lat);
                 }
 
                 old_pos = Some(pos);
