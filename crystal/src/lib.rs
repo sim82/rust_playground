@@ -232,24 +232,34 @@ impl Cell for Point3i {
     }
 }
 
-pub struct Planes {
+pub struct PlanesMerged {
     vertices: HashMap<Point3i, i32>,
     num_vertices: i32,
     planes: Vec<[i32; NUM_PLANE_CORNERS]>,
     dirs: Vec<Dir>,
 }
 
-impl Planes {
-    pub fn new() -> Planes {
-        Planes {
+pub trait Planes {
+    fn create_planes(&mut self, bitmap: &BlockMap);
+    fn print(&self);
+    fn vertex_iter(&self) -> Box<Iterator<Item = (&Point3i, i32)> + '_>;
+    fn dir_iter(&self) -> Box<Iterator<Item = &Dir> + '_>;
+    fn planes_iter(&self) -> Box<Iterator<Item = &[i32; NUM_PLANE_CORNERS]> + '_>;
+}
+
+impl PlanesMerged {
+    pub fn new() -> PlanesMerged {
+        PlanesMerged {
             vertices: HashMap::new(),
             num_vertices: 0,
             planes: Vec::new(),
             dirs: Vec::new(),
         }
     }
+}
 
-    pub fn create_planes(&mut self, bitmap: &BlockMap) {
+impl Planes for PlanesMerged {
+    fn create_planes(&mut self, bitmap: &BlockMap) {
         for ((x, y, z), v) in bitmap.indexed_iter() {
             // println!("{} {} {}", x, y, z);
             if !v {
@@ -291,7 +301,7 @@ impl Planes {
         }
     }
 
-    pub fn print(&self) {
+    fn print(&self) {
         let mut x: Vec<(&Point3i, &i32)> = self.vertices.iter().collect();
         x.sort_by_key(|(_, v)| *v);
 
@@ -304,18 +314,98 @@ impl Planes {
         }
     }
 
-    pub fn vertex_iter(&self) -> impl Iterator<Item = (&Point3i, &i32)> {
-        self.vertices.iter()
+    fn vertex_iter(&self) -> Box<Iterator<Item = (&Point3i, i32)> + '_> {
+        Box::new(self.vertices.iter().map(|(p, i)| (p, *i)))
     }
 
-    pub fn dir_iter(&self) -> impl Iterator<Item = &Dir> {
-        self.dirs.iter()
+    fn dir_iter(&self) -> Box<Iterator<Item = &Dir> + '_> {
+        Box::new(self.dirs.iter())
     }
 
-    pub fn planes_iter(&self) -> impl Iterator<Item = &[i32; NUM_PLANE_CORNERS]> {
-        self.planes.iter()
+    fn planes_iter(&self) -> Box<Iterator<Item = &[i32; NUM_PLANE_CORNERS]> + '_> {
+        Box::new(self.planes.iter())
     }
 }
+
+pub struct PlanesSep {
+    vertices: Vec<Point3i>,
+    planes: Vec<[i32; NUM_PLANE_CORNERS]>,
+    dirs: Vec<Dir>,
+}
+
+impl PlanesSep {
+    pub fn new() -> Self {
+        Self {
+            vertices: Vec::new(),
+            planes: Vec::new(),
+            dirs: Vec::new(),
+        }
+    }
+}
+
+impl Planes for PlanesSep {
+    fn create_planes(&mut self, bitmap: &BlockMap) {
+        for ((x, y, z), v) in bitmap.indexed_iter() {
+            // println!("{} {} {}", x, y, z);
+            if !v {
+                continue;
+            }
+            let this_point = Point3i::new(x as i32, y as i32, z as i32);
+            for dir in [
+                Dir::ZxNeg,
+                Dir::ZxPos,
+                Dir::XyNeg,
+                Dir::XyPos,
+                Dir::YzNeg,
+                Dir::YzPos,
+            ]
+            .iter()
+            {
+                if let Some(p) = bitmap.step(this_point, dir) {
+                    if !Bitmap::get(bitmap, p) {
+                        let local_corners: [Vec3i; NUM_PLANE_CORNERS] = dir.get_corners();
+                        assert!(local_corners.len() == 4);
+                        let corners = local_corners.iter().map(|x| this_point + x);
+                        let mut points = [0; NUM_PLANE_CORNERS];
+
+                        for (i, c) in corners.enumerate() {
+                            points[i] = self.vertices.len() as i32;
+                            self.vertices.push(c);
+                            self.dirs.push(*dir);
+                        }
+                        self.planes.push(points);
+                    }
+                }
+            }
+        }
+    }
+
+    fn print(&self) {
+        let mut x: Vec<(&Point3i, i32)> = self.vertices.iter().enumerate().map(|(i,p)| (p, i as i32)).collect();
+        x.sort_by_key(|(_, v)| *v);
+
+        for (k, v) in x.iter() {
+            println!("{}: {}", v, DisplayWrap::from(**k));
+        }
+
+        for p in &self.planes {
+            println!("{}", DisplayWrap::from(*p));
+        }
+    }
+
+    fn vertex_iter(&self) -> Box<Iterator<Item = (&Point3i, i32)> + '_> {
+        Box::new(self.vertices.iter().enumerate().map(|(i,p)| (p, i as i32)))
+    }
+
+    fn dir_iter(&self) -> Box<Iterator<Item = &Dir> + '_> {
+        Box::new(self.dirs.iter())
+    }
+
+    fn planes_iter(&self) -> Box<Iterator<Item = &[i32; NUM_PLANE_CORNERS]> + '_> {
+        Box::new(self.planes.iter())
+    }
+}
+
 
 pub fn to_height(c: char) -> i32 {
     match c {

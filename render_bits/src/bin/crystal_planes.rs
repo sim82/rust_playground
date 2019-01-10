@@ -1,13 +1,15 @@
 extern crate crystal;
 extern crate render_bits;
 
+use crystal::Planes;
+
 fn main() {
     let bm = crystal::read_map("hidden_ramp.txt").expect("could not read file");
-    let mut planes = crystal::Planes::new();
+    let mut planes = crystal::PlanesSep::new();
     planes.create_planes(&bm);
     planes.print();
 
-    let mut x: Vec<(&crystal::Point3i, &i32)> = planes.vertex_iter().collect();
+    let mut x: Vec<(&crystal::Point3i, i32)> = planes.vertex_iter().collect();
     x.sort_by_key(|(_, v)| *v);
 
     let vertices: Vec<_> = x
