@@ -255,93 +255,38 @@ impl RenderTest {
             images : images
         }
     }
+
+    fn window(&self) -> &Window {
+        self.surface.window()
+    }
+    fn dimension(&self) -> [u32 ; 2] {
+        let window = self.window();
+        if let Some(dimensions) = window.get_inner_size() {
+            let dimensions: (u32, u32) =
+                dimensions.to_physical(window.get_hidpi_factor()).into();
+            [dimensions.0, dimensions.1]
+        } else {
+            panic!("panic")
+        }
+    }
 }
 pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
-    // The start of this example is exactly the same as `triangle`. You should read the
-    // `triangle` example if you haven't done so yet.
 
-    let extensions = vulkano_win::required_extensions();
-    let instance = Instance::new(None, &extensions, None).unwrap();
-
-    let physical = PhysicalDevice::enumerate(&instance).next().unwrap();
-    println!(
-        "Using device: {} (type: {:?})",
-        physical.name(),
-        physical.ty()
-    );
-
-    let mut events_loop = winit::EventsLoop::new();
-    let surface = winit::WindowBuilder::new()
-        .build_vk_surface(&events_loop, instance.clone())
-        .unwrap();
-    let window = surface.window();
-
-    // unlike the triangle example we need to keep track of the width and height so we can calculate
-    // render the teapot with the correct aspect ratio.
-    let mut dimensions = if let Some(dimensions) = window.get_inner_size() {
-        let dimensions: (u32, u32) = dimensions.to_physical(window.get_hidpi_factor()).into();
-        [dimensions.0, dimensions.1]
-    } else {
-        return;
-    };
-
-    let queue_family = physical
-        .queue_families()
-        .find(|&q| q.supports_graphics() && surface.is_supported(q).unwrap_or(false))
-        .unwrap();
-
-    let device_ext = DeviceExtensions {
-        khr_swapchain: true,
-        ..DeviceExtensions::none()
-    };
-
-    let (device, mut queues) = Device::new(
-        physical,
-        physical.supported_features(),
-        &device_ext,
-        [(queue_family, 0.5)].iter().cloned(),
-    )
-    .unwrap();
-
-    let queue = queues.next().unwrap();
-
-    let (mut swapchain, images) = {
-        let caps = surface.capabilities(physical).unwrap();
-        let usage = caps.supported_usage_flags;
-        let format = caps.supported_formats[0].0;
-        let alpha = caps.supported_composite_alpha.iter().next().unwrap();
-
-        Swapchain::new(
-            device.clone(),
-            surface.clone(),
-            caps.min_image_count,
-            format,
-            dimensions,
-            1,
-            usage,
-            &queue,
-            SurfaceTransform::Identity,
-            alpha,
-            PresentMode::Fifo,
-            true,
-            None,
-        )
-        .unwrap()
-    };
+    let mut render_test = RenderTest::new();
     //let vertex_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), vertices).unwrap();
     let (vertex_buffer, vb_future) =
-        ImmutableBuffer::from_iter(vertices.iter().cloned(), BufferUsage::all(), queue.clone())
+        ImmutableBuffer::from_iter(vertices.iter().cloned(), BufferUsage::all(), render_test.queue.clone())
             .unwrap();
     // let (vertex_buffer, vb_future) =
     //     ImmutableBuffer::from_iter(vx.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
 
     let normals = normals.iter().cloned();
     let (normals_buffer, nb_future) =
-        ImmutableBuffer::from_iter(normals, BufferUsage::all(), queue.clone()).unwrap();
+        ImmutableBuffer::from_iter(normals, BufferUsage::all(), render_test.queue.clone()).unwrap();
 
     let indices = indices.iter().cloned();
     let (index_buffer, ib_future) =
-        ImmutableBuffer::from_iter(indices, BufferUsage::all(), queue.clone()).unwrap();
+        ImmutableBuffer::from_iter(indices, BufferUsage::all(), render_test.queue.clone()).unwrap();
 
     let fence_signal = Arc::new(
         vb_future
@@ -350,18 +295,18 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
             .unwrap(),
     );
 
-    let uniform_buffer = CpuBufferPool::<vs::ty::Data>::new(device.clone(), BufferUsage::all());
+    let uniform_buffer = CpuBufferPool::<vs::ty::Data>::new(render_test.device.clone(), BufferUsage::all());
 
-    let vs = vs::Shader::load(device.clone()).unwrap();
-    let fs = fs::Shader::load(device.clone()).unwrap();
+    let vs = vs::Shader::load(render_test.device.clone()).unwrap();
+    let fs = fs::Shader::load(render_test.device.clone()).unwrap();
 
     let render_pass = Arc::new(
-        vulkano::single_pass_renderpass!(device.clone(),
+        vulkano::single_pass_renderpass!(render_test.device.clone(),
             attachments: {
                 color: {
                     load: Clear,
                     store: Store,
-                    format: swapchain.format(),
+                    format: render_test.swapchain.format(),
                     samples: 1,
                 },
                 depth: {
@@ -380,11 +325,11 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
     );
 
     let (mut pipeline, mut framebuffers) =
-        window_size_dependent_setup(device.clone(), &vs, &fs, &images, render_pass.clone());
+        window_size_dependent_setup(render_test.device.clone(), &vs, &fs, &render_test.images, render_pass.clone());
     let mut recreate_swapchain = false;
 
     // let mut previous_frame = Box::new(vb_future.join(nb_future.join(ib_future))) as Box<GpuFuture>;//Box::new(sync::now(device.clone())) as Box<GpuFuture>;
-    let mut previous_frame = Box::new(sync::now(device.clone())) as Box<GpuFuture>;
+    let mut previous_frame = Box::new(sync::now(render_test.device.clone())) as Box<GpuFuture>;
     let rotation_start = Instant::now();
 
     fence_signal.wait(None).unwrap();
@@ -400,25 +345,19 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
 
     loop {
         previous_frame.cleanup_finished();
+        let dimensions = render_test.dimension();
 
         if recreate_swapchain {
-            dimensions = if let Some(dimensions) = window.get_inner_size() {
-                let dimensions: (u32, u32) =
-                    dimensions.to_physical(window.get_hidpi_factor()).into();
-                [dimensions.0, dimensions.1]
-            } else {
-                return;
-            };
 
-            let (new_swapchain, new_images) = match swapchain.recreate_with_dimension(dimensions) {
+            let (new_swapchain, new_images) = match render_test.swapchain.recreate_with_dimension(dimensions) {
                 Ok(r) => r,
                 Err(SwapchainCreationError::UnsupportedDimensions) => continue,
                 Err(err) => panic!("{:?}", err),
             };
-            swapchain = new_swapchain;
+            render_test.swapchain = new_swapchain;
 
             let (new_pipeline, new_framebuffers) = window_size_dependent_setup(
-                device.clone(),
+                render_test.device.clone(),
                 &vs,
                 &fs,
                 &new_images,
@@ -477,7 +416,7 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
         );
 
         let (image_num, acquire_future) =
-            match swapchain::acquire_next_image(swapchain.clone(), None) {
+            match swapchain::acquire_next_image(render_test.swapchain.clone(), None) {
                 Ok(r) => r,
                 Err(AcquireError::OutOfDate) => {
                     recreate_swapchain = true;
@@ -487,7 +426,7 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
             };
 
         let command_buffer =
-            AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family())
+            AutoCommandBufferBuilder::primary_one_time_submit(render_test.device.clone(), render_test.queue.family())
                 .unwrap()
                 .begin_render_pass(
                     framebuffers[image_num].clone(),
@@ -511,9 +450,9 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
 
         let future = previous_frame
             .join(acquire_future)
-            .then_execute(queue.clone(), command_buffer)
+            .then_execute(render_test.queue.clone(), command_buffer)
             .unwrap()
-            .then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
+            .then_swapchain_present(render_test.queue.clone(), render_test.swapchain.clone(), image_num)
             .then_signal_fence_and_flush();
 
         match future {
@@ -522,16 +461,16 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
             }
             Err(sync::FlushError::OutOfDate) => {
                 recreate_swapchain = true;
-                previous_frame = Box::new(sync::now(device.clone())) as Box<_>;
+                previous_frame = Box::new(sync::now(render_test.device.clone())) as Box<_>;
             }
             Err(e) => {
                 println!("{:?}", e);
-                previous_frame = Box::new(sync::now(device.clone())) as Box<_>;
+                previous_frame = Box::new(sync::now(render_test.device.clone())) as Box<_>;
             }
         }
 
         let mut done = false;
-        events_loop.poll_events(|ev| match ev {
+        render_test.events_loop.poll_events(|ev| match ev {
             winit::Event::WindowEvent {
                 event: winit::WindowEvent::CloseRequested,
                 ..
