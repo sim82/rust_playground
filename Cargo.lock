@@ -53,35 +53,6 @@ version = "1.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
-name = "capnp"
-version = "0.9.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "byteorder 1.2.7 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "capnp_test"
-version = "0.1.0"
-dependencies = [
- "capnp 0.9.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "capnpc 0.9.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "cgmath 0.16.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "custom_error 1.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "memmap 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "ndarray 0.12.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "uuid 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "capnpc"
-version = "0.9.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "capnp 0.9.4 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "cc"
 version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -691,7 +662,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "render_bits"
 version = "0.1.0"
 dependencies = [
- "capnp_test 0.1.0",
  "cgmath 0.16.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "crystal 0.1.0",
  "custom_error 1.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -826,11 +796,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "void 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
-
-[[package]]
-name = "uuid"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "vk-sys"
@@ -1018,8 +983,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum bitflags 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)" = "228047a76f468627ca71776ecdebd732a3423081fcf5125585bcd7c49886ce12"
 "checksum block 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "0d8c1fef690941d3e7788d328517591fecc684c084084702d6ff1641e993699a"
 "checksum byteorder 1.2.7 (registry+https://github.com/rust-lang/crates.io-index)" = "94f88df23a25417badc922ab0f5716cc1330e87f71ddd9203b3a3ccd9cedf75d"
-"checksum capnp 0.9.4 (registry+https://github.com/rust-lang/crates.io-index)" = "5f3809f2a9dae96253a32f079db1d9887a495fa0e3181bc2a64476d7ff58eac8"
-"checksum capnpc 0.9.3 (registry+https://github.com/rust-lang/crates.io-index)" = "def7dcaba60ae98fb6fd1614e141f7c9b98ac7dd5daddb9f79771c4296b1ed21"
 "checksum cc 1.0.28 (registry+https://github.com/rust-lang/crates.io-index)" = "bb4a8b715cb4597106ea87c7c84b2f1d452c7492033765df7f32651e66fcf749"
 "checksum cfg-if 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "082bb9b28e00d3c9d39cc03e64ce4cea0f1bb9b3fde493f0cbc008472d22bdf4"
 "checksum cgmath 0.16.1 (registry+https://github.com/rust-lang/crates.io-index)" = "64a4b57c8f4e3a2e9ac07e0f6abc9c24b6fc9e1b54c3478cfb598f3d0023e51c"
@@ -1106,7 +1069,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum syn 0.15.23 (registry+https://github.com/rust-lang/crates.io-index)" = "9545a6a093a3f0bd59adb472700acc08cad3776f860f16a897dfce8c88721cbc"
 "checksum unicode-xid 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "fc72304796d0818e357ead4e000d19c9c174ab23dc11093ac919054d20a6a7fc"
 "checksum unreachable 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "382810877fe448991dfc7f0dd6e3ae5d58088fd0ea5e35189655f84e6814fa56"
-"checksum uuid 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)" = "dab5c5526c5caa3d106653401a267fed923e7046f35895ffcb5ca42db64942e6"
 "checksum vk-sys 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "36f5fd4a7d6d5d19808610583131c0aed271556527cad4cb71c436831a28e059"
 "checksum void 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)" = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 "checksum vulkano 0.11.1 (registry+https://github.com/rust-lang/crates.io-index)" = "715b3528d50119f2b7088479a79ff9d95416a6613d18c853d87ad98185ca43d1"

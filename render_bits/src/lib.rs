@@ -7,7 +7,6 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-extern crate capnp_test;
 extern crate cgmath;
 extern crate num_traits;
 extern crate vulkano;
