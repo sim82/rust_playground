@@ -381,7 +381,12 @@ impl Planes for PlanesSep {
     }
 
     fn print(&self) {
-        let mut x: Vec<(&Point3i, i32)> = self.vertices.iter().enumerate().map(|(i,p)| (p, i as i32)).collect();
+        let mut x: Vec<(&Point3i, i32)> = self
+            .vertices
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (p, i as i32))
+            .collect();
         x.sort_by_key(|(_, v)| *v);
 
         for (k, v) in x.iter() {
@@ -394,7 +399,7 @@ impl Planes for PlanesSep {
     }
 
     fn vertex_iter(&self) -> Box<Iterator<Item = (&Point3i, i32)> + '_> {
-        Box::new(self.vertices.iter().enumerate().map(|(i,p)| (p, i as i32)))
+        Box::new(self.vertices.iter().enumerate().map(|(i, p)| (p, i as i32)))
     }
 
     fn dir_iter(&self) -> Box<Iterator<Item = &Dir> + '_> {
@@ -405,7 +410,6 @@ impl Planes for PlanesSep {
         Box::new(self.planes.iter())
     }
 }
-
 
 pub fn to_height(c: char) -> i32 {
     match c {

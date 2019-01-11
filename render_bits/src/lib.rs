@@ -159,6 +159,17 @@ impl std::fmt::Debug for PlayerFlyModel {
     }
 }
 
+struct RenderTest {
+    instance : Instance,
+    physicel : PhysicalDevice,
+
+}
+
+impl Rendertest {
+    fn new() -> RenderTest {
+
+    }
+}
 pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
     // The start of this example is exactly the same as `triangle`. You should read the
     // `triangle` example if you haven't done so yet.
@@ -346,17 +357,18 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
                 cgmath::perspective(Rad(std::f32::consts::FRAC_PI_2), aspect_ratio, 0.01, 100.0)
                     * Matrix4::from_nonuniform_scale(1f32, 1f32, -1f32);
 
+            const FORWARD_VEL: f32 = 1.0 / 60.0 * 2.0;
             if input_state.forward {
-                player_model.apply_move_forward(1.0 / 60.0);
+                player_model.apply_move_forward(FORWARD_VEL);
             }
             if input_state.backward {
-                player_model.apply_move_forward(-1.0 / 60.0);
+                player_model.apply_move_forward(-FORWARD_VEL);
             }
             if input_state.left {
-                player_model.apply_move_right(-1.0 / 60.0);
+                player_model.apply_move_right(-FORWARD_VEL);
             }
             if input_state.right {
-                player_model.apply_move_right(1.0 / 60.0);
+                player_model.apply_move_right(FORWARD_VEL);
             }
 
             println!("{:?}", player_model);
