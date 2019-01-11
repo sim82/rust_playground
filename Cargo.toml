@@ -1,2 +1,2 @@
 [workspace]
-members = ["capnp_test", "crystal", "render_bits"]
+members = ["crystal", "render_bits"]
