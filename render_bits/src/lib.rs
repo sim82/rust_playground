@@ -159,14 +159,101 @@ impl std::fmt::Debug for PlayerFlyModel {
 }
 
 struct RenderTest {
-    instance : Instance,
-    physicel : PhysicalDevice,
+    instance: Arc<Instance>,
+    events_loop: winit::EventsLoop,
+    //window : Window,
+    surface: Arc<vulkano::swapchain::Surface<Window>>,
+    // physical : PhysicalDevice<'a>,
+    device: Arc<Device>,
+    queue: Arc<vulkano::device::Queue>,
 
+    swapchain : Arc<Swapchain<Window>>,
+    images : Vec<Arc<SwapchainImage<Window>>>,
 }
 
-impl Rendertest {
+impl RenderTest {
     fn new() -> RenderTest {
+        let extensions = vulkano_win::required_extensions();
+        let instance = Instance::new(None, &extensions, None).unwrap();
+        let mut events_loop = winit::EventsLoop::new();
+        let surface = winit::WindowBuilder::new()
+            .build_vk_surface(&events_loop, instance.clone())
+            .unwrap();
 
+        let mut dimensions = {
+
+            let window = surface.window();
+            if let Some(dimensions) = window.get_inner_size() {
+                let dimensions: (u32, u32) = dimensions.to_physical(window.get_hidpi_factor()).into();
+                [dimensions.0, dimensions.1]
+            } else {
+                panic!("panic")
+            }
+        };
+
+        let (device, mut queues) = {
+            let physical = PhysicalDevice::enumerate(&instance).next().unwrap();
+
+            println!(
+                "Using device: {} (type: {:?})",
+                physical.name(),
+                physical.ty()
+            );
+            let queue_family = physical
+                .queue_families()
+                .find(|&q| q.supports_graphics() && surface.is_supported(q).unwrap_or(false))
+                .unwrap();
+
+            let device_ext = DeviceExtensions {
+                khr_swapchain: true,
+                ..DeviceExtensions::none()
+            };
+
+            Device::new(
+                physical,
+                physical.supported_features(),
+                &device_ext,
+                [(queue_family, 0.5)].iter().cloned(),
+            )
+            .unwrap()
+        };
+        let queue = queues.next().unwrap();
+        // let window = surface.window();
+        let (mut swapchain, images) = {
+            let physical = PhysicalDevice::enumerate(&instance).next().unwrap();
+            
+            let caps = surface.capabilities(physical).unwrap();
+            let usage = caps.supported_usage_flags;
+            let format = caps.supported_formats[0].0;
+            let alpha = caps.supported_composite_alpha.iter().next().unwrap();
+
+            Swapchain::new(
+                device.clone(),
+                surface.clone(),
+                caps.min_image_count,
+                format,
+                dimensions,
+                1,
+                usage,
+                &queue,
+                SurfaceTransform::Identity,
+                alpha,
+                PresentMode::Fifo,
+                true,
+                None,
+            )
+            .unwrap()
+        };
+
+        RenderTest {
+            instance: instance,
+            events_loop: events_loop,
+            surface: surface,
+            device: device,
+            queue: queue,
+            swapchain : swapchain,
+            images : images
+        }
     }
 }
 pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
