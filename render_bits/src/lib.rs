@@ -43,54 +43,54 @@ use cgmath::prelude::*;
 use cgmath::{Deg, Matrix3, Matrix4, Point3, Rad, Vector3, Vector4};
 
 use num_traits::clamp;
+use std::cell::RefCell;
 use std::iter;
 use std::sync::Arc;
 use std::time::Instant;
-use std::cell::RefCell;
 
-#[derive(Copy, Clone)]
-pub struct Vertex {
-    pub position: (f32, f32, f32),
-}
+// #[derive(Copy, Clone)]
+// pub struct Vertex {
+//     pub position: (f32, f32, f32),
+// }
 
-vulkano::impl_vertex!(Vertex, position);
+// vulkano::impl_vertex!(Vertex, position);
 
-#[derive(Copy, Clone)]
-pub struct Normal {
-    pub normal: (f32, f32, f32),
-}
+// #[derive(Copy, Clone)]
+// pub struct Normal {
+//     pub normal: (f32, f32, f32),
+// }
 
-impl_vertex!(Normal, normal);
+// impl_vertex!(Normal, normal);
 
-impl From<cgmath::Vector3<f32>> for Vertex {
-    fn from(v: cgmath::Vector3<f32>) -> Vertex {
-        Vertex {
-            position: (v.x, v.y, v.z),
-        }
-    }
-}
+// impl From<cgmath::Vector3<f32>> for Vertex {
+//     fn from(v: cgmath::Vector3<f32>) -> Vertex {
+//         Vertex {
+//             position: (v.x, v.y, v.z),
+//         }
+//     }
+// }
 
-impl From<cgmath::Vector3<f32>> for Normal {
-    fn from(v: cgmath::Vector3<f32>) -> Normal {
-        Normal {
-            normal: (v.x, v.y, v.z),
-        }
-    }
-}
+// impl From<cgmath::Vector3<f32>> for Normal {
+//     fn from(v: cgmath::Vector3<f32>) -> Normal {
+//         Normal {
+//             normal: (v.x, v.y, v.z),
+//         }
+//     }
+// }
 
 type Vec3 = Vector3<f32>;
 type Vec4 = Vector4<f32>;
 
-struct PlayerFlyModel {
+pub struct PlayerFlyModel {
     lon: Deg<f32>,
     lat: Deg<f32>,
     pos: Point3<f32>,
 }
-struct InputState {
-    forward: bool,
-    backward: bool,
-    left: bool,
-    right: bool,
+pub struct InputState {
+    pub forward: bool,
+    pub backward: bool,
+    pub left: bool,
+    pub right: bool,
 }
 
 impl InputState {
@@ -105,7 +105,7 @@ impl InputState {
 }
 
 impl PlayerFlyModel {
-    fn new() -> Self {
+    pub fn new() -> Self {
         PlayerFlyModel {
             lon: Deg(0.0),
             lat: Deg(0.0),
@@ -113,35 +113,35 @@ impl PlayerFlyModel {
         }
     }
 
-    fn apply_delta_lon(&mut self, d: f32) {
+    pub fn apply_delta_lon(&mut self, d: f32) {
         self.lon += Deg(d);
     }
-    fn apply_delta_lat(&mut self, d: f32) {
+    pub fn apply_delta_lat(&mut self, d: f32) {
         self.lat = num_traits::clamp(self.lat + Deg(d), Deg(-90.0), Deg(90.0));
     }
-    fn get_rotation_lon(&self) -> Matrix4<f32> {
+    pub fn get_rotation_lon(&self) -> Matrix4<f32> {
         Matrix4::from_angle_y(self.lon)
     }
-    fn get_rotation_lat(&self) -> Matrix4<f32> {
+    pub fn get_rotation_lat(&self) -> Matrix4<f32> {
         Matrix4::from_angle_x(self.lat)
     }
-    fn apply_move_forward(&mut self, d: f32) {
+    pub fn apply_move_forward(&mut self, d: f32) {
         self.pos +=
             (self.get_rotation_lon() * self.get_rotation_lat() * Vec4::new(0.0, 0.0, d, 0.0))
                 .truncate();
     }
-    fn apply_move_right(&mut self, d: f32) {
+    pub fn apply_move_right(&mut self, d: f32) {
         self.pos +=
             (self.get_rotation_lon() * self.get_rotation_lat() * Vec4::new(d, 0.0, 0.0, 0.0))
                 .truncate();
     }
-    fn get_view_matrix(&self) -> Matrix4<f32> {
+    pub fn get_view_matrix(&self) -> Matrix4<f32> {
         // (self.get_rotation_lat(true) * self.get_rotation_lon(true) * self.get_translation(true)).invert().unwrap()
         (self.get_translation() * self.get_rotation_lon() * self.get_rotation_lat())
             .invert()
             .unwrap()
     }
-    fn get_translation(&self) -> Matrix4<f32> {
+    pub fn get_translation(&self) -> Matrix4<f32> {
         // Matrix4::from_translation( Point3::<f32>::to_vec(self.pos) )
         Matrix4::from_translation(self.pos.to_vec())
     }
@@ -165,12 +165,12 @@ pub struct RenderTest {
     //window : Window,
     surface: Arc<vulkano::swapchain::Surface<Window>>,
     // physical : PhysicalDevice<'a>,
-    device: Arc<Device>,
-    queue: Arc<vulkano::device::Queue>,
+    pub device: Arc<Device>,
+    pub queue: Arc<vulkano::device::Queue>,
 
     swapchain: Arc<Swapchain<Window>>,
     images: Vec<Arc<SwapchainImage<Window>>>,
-    render_pass: Arc<RenderPassAbstract + Send + Sync>,
+    pub render_pass: Arc<RenderPassAbstract + Send + Sync>,
 
     delegate: Arc<RefCell<RenderDelegate>>,
 }
@@ -289,7 +289,7 @@ impl RenderTest {
     fn window(&self) -> &Window {
         self.surface.window()
     }
-    fn dimension(&self) -> [u32; 2] {
+    pub fn dimension(&self) -> [u32; 2] {
         let window = self.window();
         if let Some(dimensions) = window.get_inner_size() {
             let dimensions: (u32, u32) = dimensions.to_physical(window.get_hidpi_factor()).into();
@@ -362,11 +362,20 @@ pub trait RenderDelegate {
         render_test: &RenderTest,
     ) -> Arc<GraphicsPipelineAbstract + Send + Sync>;
 
-    fn frame(&mut self, render_test : &RenderTest) -> Box<vulkano::command_buffer::CommandBuffer<PoolAlloc = vulkano::command_buffer::pool::standard::StandardCommandPoolBuilder>>;
-
+    fn frame(
+        &mut self,
+        render_test: &RenderTest,
+        input_state: &InputState,
+        framebuffer: Arc<vulkano::framebuffer::FramebufferAbstract + Send + Sync>,
+        pipeline: Arc<GraphicsPipelineAbstract + Send + Sync>,
+    ) -> Box<
+        vulkano::command_buffer::CommandBuffer<
+            PoolAlloc = vulkano::command_buffer::pool::standard::StandardCommandPoolAlloc,
+        >,
+    >;
 }
 
-pub fn render_test(delegate: &mut Arc<RefCell<RenderDelegate>>) {
+pub fn render_test(delegate: Arc<RefCell<RenderDelegate>>) {
     let mut render_test = RenderTest::new(delegate.clone());
     //let vertex_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), vertices).unwrap();
 
@@ -377,7 +386,6 @@ pub fn render_test(delegate: &mut Arc<RefCell<RenderDelegate>>) {
     // let mut previous_frame = Box::new(sync::now(render_test.device.clone())) as Box<GpuFuture>;
     let mut previous_frame = delegate.borrow_mut().init(&render_test);
     let rotation_start = Instant::now();
-
 
     //let mut old_pos = winit::dpi::LogicalPosition::new();
 
@@ -454,7 +462,12 @@ pub fn render_test(delegate: &mut Arc<RefCell<RenderDelegate>>) {
                 }
                 Err(err) => panic!("{:?}", err),
             };
-        let command_buffer = delegate.borrow_mut().frame(&render_test);
+        let command_buffer = delegate.borrow_mut().frame(
+            &render_test,
+            &input_state,
+            framebuffers[image_num].clone(),
+            pipeline.clone(),
+        );
         // let command_buffer = AutoCommandBufferBuilder::primary_one_time_submit(
         //     render_test.device.clone(),
         //     render_test.queue.family(),
