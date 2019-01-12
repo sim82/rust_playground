@@ -28,35 +28,7 @@ use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use cgmath::prelude::*;
 use cgmath::{Deg, Matrix3, Matrix4, Point3, Rad, Vector3, Vector4};
 
-#[derive(Copy, Clone)]
-pub struct Vertex {
-    pub position: (f32, f32, f32),
-}
-
-vulkano::impl_vertex!(Vertex, position);
-
-#[derive(Copy, Clone)]
-pub struct Normal {
-    pub normal: (f32, f32, f32),
-}
-
-impl_vertex!(Normal, normal);
-
-impl From<cgmath::Vector3<f32>> for Vertex {
-    fn from(v: cgmath::Vector3<f32>) -> Vertex {
-        Vertex {
-            position: (v.x, v.y, v.z),
-        }
-    }
-}
-
-impl From<cgmath::Vector3<f32>> for Normal {
-    fn from(v: cgmath::Vector3<f32>) -> Normal {
-        Normal {
-            normal: (v.x, v.y, v.z),
-        }
-    }
-}
+use render_bits::{Vertex, Normal};
 
 struct CrystalRenderDelgate {
     player_model: PlayerFlyModel,
@@ -183,10 +155,10 @@ impl RenderDelegate for CrystalRenderDelgate {
         >,
     > {
         match (
-            self.vertex_buffer,
-            self.normals_buffer,
-            self.index_buffer,
-            self.uniform_buffer,
+            &self.vertex_buffer,
+            &self.normals_buffer,
+            &self.index_buffer,
+            &self.uniform_buffer,
         ) {
             (
                 Some(vertex_buffer),
@@ -194,6 +166,7 @@ impl RenderDelegate for CrystalRenderDelgate {
                 Some(index_buffer),
                 Some(uniform_buffer),
             ) => {
+
                 let uniform_buffer_subbuffer = {
                     let dimensions = render_test.dimension();
                     // note: this teapot was meant for OpenGL where the origin is at the lower left
@@ -205,6 +178,10 @@ impl RenderDelegate for CrystalRenderDelgate {
                         0.01,
                         100.0,
                     ) * Matrix4::from_nonuniform_scale(1f32, 1f32, -1f32);
+
+                    self.player_model.apply_delta_lon(input_state.d_lon);
+                    self.player_model.apply_delta_lat(input_state.d_lat);
+
 
                     const FORWARD_VEL: f32 = 1.0 / 60.0 * 2.0;
                     if input_state.forward {

@@ -3,5 +3,5 @@ use render_bits::render_test;
 mod data;
 
 fn main() {
-    render_test(&data::VERTICES[..], &data::NORMALS[..], &data::INDICES[..]);
+    // render_test(&data::VERTICES[..], &data::NORMALS[..], &data::INDICES[..]);
 }

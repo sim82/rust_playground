@@ -48,35 +48,35 @@ use std::iter;
 use std::sync::Arc;
 use std::time::Instant;
 
-// #[derive(Copy, Clone)]
-// pub struct Vertex {
-//     pub position: (f32, f32, f32),
-// }
+#[derive(Copy, Clone)]
+pub struct Vertex {
+    pub position: (f32, f32, f32),
+}
 
-// vulkano::impl_vertex!(Vertex, position);
+vulkano::impl_vertex!(Vertex, position);
 
-// #[derive(Copy, Clone)]
-// pub struct Normal {
-//     pub normal: (f32, f32, f32),
-// }
+#[derive(Copy, Clone)]
+pub struct Normal {
+    pub normal: (f32, f32, f32),
+}
 
-// impl_vertex!(Normal, normal);
+impl_vertex!(Normal, normal);
 
-// impl From<cgmath::Vector3<f32>> for Vertex {
-//     fn from(v: cgmath::Vector3<f32>) -> Vertex {
-//         Vertex {
-//             position: (v.x, v.y, v.z),
-//         }
-//     }
-// }
+impl From<cgmath::Vector3<f32>> for Vertex {
+    fn from(v: cgmath::Vector3<f32>) -> Vertex {
+        Vertex {
+            position: (v.x, v.y, v.z),
+        }
+    }
+}
 
-// impl From<cgmath::Vector3<f32>> for Normal {
-//     fn from(v: cgmath::Vector3<f32>) -> Normal {
-//         Normal {
-//             normal: (v.x, v.y, v.z),
-//         }
-//     }
-// }
+impl From<cgmath::Vector3<f32>> for Normal {
+    fn from(v: cgmath::Vector3<f32>) -> Normal {
+        Normal {
+            normal: (v.x, v.y, v.z),
+        }
+    }
+}
 
 type Vec3 = Vector3<f32>;
 type Vec4 = Vector4<f32>;
@@ -91,6 +91,8 @@ pub struct InputState {
     pub backward: bool,
     pub left: bool,
     pub right: bool,
+    pub d_lon : Deg<f32>,
+    pub d_lat : Deg<f32>,
 }
 
 impl InputState {
@@ -100,6 +102,8 @@ impl InputState {
             backward: false,
             left: false,
             right: false,
+            d_lon: Deg(0f32),
+            d_lat: Deg(0f32),
         }
     }
 }
@@ -113,11 +117,11 @@ impl PlayerFlyModel {
         }
     }
 
-    pub fn apply_delta_lon(&mut self, d: f32) {
-        self.lon += Deg(d);
+    pub fn apply_delta_lon(&mut self, d: Deg<f32>) {
+        self.lon += d;
     }
-    pub fn apply_delta_lat(&mut self, d: f32) {
-        self.lat = num_traits::clamp(self.lat + Deg(d), Deg(-90.0), Deg(90.0));
+    pub fn apply_delta_lat(&mut self, d: Deg<f32>) {
+        self.lat = num_traits::clamp(self.lat + d, Deg(-90.0), Deg(90.0));
     }
     pub fn get_rotation_lon(&self) -> Matrix4<f32> {
         Matrix4::from_angle_y(self.lon)
@@ -391,9 +395,6 @@ pub fn render_test(delegate: Arc<RefCell<RenderDelegate>>) {
 
     let mut old_pos = None as Option<winit::dpi::LogicalPosition>;
 
-    let mut lon = 0.0f32;
-    let mut lat = 0.0f32;
-    let mut player_model = PlayerFlyModel::new();
     let mut input_state = InputState::new();
 
     loop {
@@ -468,6 +469,8 @@ pub fn render_test(delegate: Arc<RefCell<RenderDelegate>>) {
             framebuffers[image_num].clone(),
             pipeline.clone(),
         );
+        input_state.d_lon = Deg(0f32);
+        input_state.d_lat = Deg(0f32);
         // let command_buffer = AutoCommandBufferBuilder::primary_one_time_submit(
         //     render_test.device.clone(),
         //     render_test.queue.family(),
@@ -538,22 +541,9 @@ pub fn render_test(delegate: Arc<RefCell<RenderDelegate>>) {
                     let x = (pos.x - op.x) as f32;
                     let y = (pos.y - op.y) as f32;
 
-                    player_model.apply_delta_lat(y);
-                    player_model.apply_delta_lon(x);
+                    input_state.d_lon = Deg(x);
+                    input_state.d_lat = Deg(y);
 
-                    lon += x;
-                    lat += y;
-
-                    lat = lat.max(-90.0f32).min(90.0f32);
-
-                    lon = if lon < 0.0f32 {
-                        lon + 360.0f32
-                    } else if lon >= 360.0f32 {
-                        lon - 360.0f32
-                    } else {
-                        lon
-                    };
-                    // println!("{} {}", lon, lat);
                 }
 
                 old_pos = Some(pos);
