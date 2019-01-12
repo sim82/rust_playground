@@ -15,20 +15,17 @@ use std::sync::Arc;
 
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool, ImmutableBuffer};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
-use vulkano::framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass};
-use vulkano::impl_vertex;
+use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
+use vulkano::framebuffer::{FramebufferAbstract, Subpass};
 use vulkano::pipeline::vertex::TwoBuffersDefinition;
 use vulkano::pipeline::viewport::Viewport;
 use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
-use vulkano::sync;
 use vulkano::sync::GpuFuture;
-use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
-
 
 use cgmath::prelude::*;
-use cgmath::{Deg, Matrix3, Matrix4, Point3, Rad, Vector3, Vector4};
+use cgmath::{Matrix4, Point3, Rad};
 
-use render_bits::{Vertex, Normal};
+use render_bits::{Normal, Vertex};
 
 struct CrystalRenderDelgate {
     player_model: PlayerFlyModel,
@@ -148,7 +145,6 @@ impl RenderDelegate for CrystalRenderDelgate {
         input_state: &InputState,
         framebuffer: Arc<FramebufferAbstract + Send + Sync>,
         pipeline: Arc<GraphicsPipelineAbstract + Send + Sync>,
-
     ) -> Box<
         vulkano::command_buffer::CommandBuffer<
             PoolAlloc = vulkano::command_buffer::pool::standard::StandardCommandPoolAlloc,
@@ -166,7 +162,6 @@ impl RenderDelegate for CrystalRenderDelgate {
                 Some(index_buffer),
                 Some(uniform_buffer),
             ) => {
-
                 let uniform_buffer_subbuffer = {
                     let dimensions = render_test.dimension();
                     // note: this teapot was meant for OpenGL where the origin is at the lower left
@@ -181,7 +176,6 @@ impl RenderDelegate for CrystalRenderDelgate {
 
                     self.player_model.apply_delta_lon(input_state.d_lon);
                     self.player_model.apply_delta_lat(input_state.d_lat);
-
 
                     const FORWARD_VEL: f32 = 1.0 / 60.0 * 2.0;
                     if input_state.forward {

@@ -14,25 +14,17 @@ extern crate vulkano_shaders;
 extern crate vulkano_win;
 extern crate winit;
 
-use vulkano::buffer::cpu_pool::CpuBufferPool;
-use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer, ImmutableBuffer};
-use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
-use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::device::{Device, DeviceExtensions};
 use vulkano::format::Format;
-use vulkano::framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract, Subpass};
+use vulkano::framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract};
 use vulkano::image::attachment::AttachmentImage;
 use vulkano::image::SwapchainImage;
 use vulkano::impl_vertex;
 use vulkano::instance::Instance;
 use vulkano::instance::PhysicalDevice;
-use vulkano::pipeline::vertex::TwoBuffersDefinition;
-use vulkano::pipeline::viewport::Viewport;
-use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
+use vulkano::pipeline::GraphicsPipelineAbstract;
 use vulkano::swapchain;
-use vulkano::swapchain::{
-    AcquireError, PresentMode, SurfaceTransform, Swapchain, SwapchainCreationError,
-};
+use vulkano::swapchain::{AcquireError, PresentMode, SurfaceTransform, Swapchain};
 use vulkano::sync;
 use vulkano::sync::GpuFuture;
 use vulkano_win::VkSurfaceBuild;
@@ -40,13 +32,10 @@ use vulkano_win::VkSurfaceBuild;
 use winit::Window;
 
 use cgmath::prelude::*;
-use cgmath::{Deg, Matrix3, Matrix4, Point3, Rad, Vector3, Vector4};
+use cgmath::{Deg, Matrix4, Point3, Vector4};
 
-use num_traits::clamp;
 use std::cell::RefCell;
-use std::iter;
 use std::sync::Arc;
-use std::time::Instant;
 
 #[derive(Copy, Clone)]
 pub struct Vertex {
@@ -78,7 +67,6 @@ impl From<cgmath::Vector3<f32>> for Normal {
     }
 }
 
-type Vec3 = Vector3<f32>;
 type Vec4 = Vector4<f32>;
 
 pub struct PlayerFlyModel {
@@ -91,8 +79,8 @@ pub struct InputState {
     pub backward: bool,
     pub left: bool,
     pub right: bool,
-    pub d_lon : Deg<f32>,
-    pub d_lat : Deg<f32>,
+    pub d_lon: Deg<f32>,
+    pub d_lat: Deg<f32>,
 }
 
 impl InputState {
@@ -157,18 +145,14 @@ impl std::fmt::Debug for PlayerFlyModel {
             f,
             "pos: [{} {} {}] rot: {:?} {:?}",
             self.pos.x, self.pos.y, self.pos.z, self.lon, self.lat
-        );
-
-        Ok(())
+        )
     }
 }
 
 pub struct RenderTest {
-    instance: Arc<Instance>,
+    // instance: Arc<Instance>,
     events_loop: winit::EventsLoop,
-    //window : Window,
     surface: Arc<vulkano::swapchain::Surface<Window>>,
-    // physical : PhysicalDevice<'a>,
     pub device: Arc<Device>,
     pub queue: Arc<vulkano::device::Queue>,
 
@@ -183,12 +167,12 @@ impl RenderTest {
     fn new(delegate: Arc<RefCell<RenderDelegate>>) -> RenderTest {
         let extensions = vulkano_win::required_extensions();
         let instance = Instance::new(None, &extensions, None).unwrap();
-        let mut events_loop = winit::EventsLoop::new();
+        let events_loop = winit::EventsLoop::new();
         let surface = winit::WindowBuilder::new()
             .build_vk_surface(&events_loop, instance.clone())
             .unwrap();
 
-        let mut dimensions = {
+        let dimensions = {
             let window = surface.window();
             if let Some(dimensions) = window.get_inner_size() {
                 let dimensions: (u32, u32) =
@@ -227,7 +211,7 @@ impl RenderTest {
         };
         let queue = queues.next().unwrap();
         // let window = surface.window();
-        let (mut swapchain, images) = {
+        let (swapchain, images) = {
             let physical = PhysicalDevice::enumerate(&instance).next().unwrap();
 
             let caps = surface.capabilities(physical).unwrap();
@@ -278,7 +262,7 @@ impl RenderTest {
         );
 
         RenderTest {
-            instance: instance,
+            // instance: instance,
             events_loop: events_loop,
             surface: surface,
             device: device,
@@ -309,8 +293,6 @@ impl RenderTest {
         Vec<Arc<FramebufferAbstract + Send + Sync>>,
     ) {
         let dimensions = self.dimension();
-        let vs = vs::Shader::load(self.device.clone()).unwrap();
-        let fs = fs::Shader::load(self.device.clone()).unwrap();
         let (new_swapchain, new_images) = match self.swapchain.recreate_with_dimension(dimensions) {
             Ok(r) => r,
             // Err(SwapchainCreationError::UnsupportedDimensions) => panic!("{:?}", err),
@@ -352,10 +334,6 @@ impl RenderTest {
         let pipeline = self.delegate.borrow().create_pipeline(self);
         (pipeline, framebuffers)
     }
-
-    // fn mainloop(&mut self) {
-
-    // }
 }
 
 pub trait RenderDelegate {
@@ -386,20 +364,12 @@ pub fn render_test(delegate: Arc<RefCell<RenderDelegate>>) {
     let (mut pipeline, mut framebuffers) = render_test.window_size_dependent_setup();
     let mut recreate_swapchain = false;
 
-    // let mut previous_frame = Box::new(vb_future.join(nb_future.join(ib_future))) as Box<GpuFuture>;//Box::new(sync::now(device.clone())) as Box<GpuFuture>;
-    // let mut previous_frame = Box::new(sync::now(render_test.device.clone())) as Box<GpuFuture>;
     let mut previous_frame = delegate.borrow_mut().init(&render_test);
-    let rotation_start = Instant::now();
-
-    //let mut old_pos = winit::dpi::LogicalPosition::new();
-
     let mut old_pos = None as Option<winit::dpi::LogicalPosition>;
-
     let mut input_state = InputState::new();
 
     loop {
         previous_frame.cleanup_finished();
-        let dimensions = render_test.dimension();
 
         if recreate_swapchain {
             let tmp = render_test.recreate_swapchain();
@@ -407,53 +377,6 @@ pub fn render_test(delegate: Arc<RefCell<RenderDelegate>>) {
             framebuffers = tmp.1;
             recreate_swapchain = false;
         }
-
-        // let uniform_buffer_subbuffer = {
-        //     let elapsed = rotation_start.elapsed();
-        //     let rotation =
-        //         elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 / 1_000_000_000.0;
-        //     let rotation = Matrix3::from_angle_y(Rad(rotation as f32));
-
-        //     // note: this teapot was meant for OpenGL where the origin is at the lower left
-        //     //       instead the origin is at the upper left in Vulkan, so we reverse the Y axis
-        //     let aspect_ratio = dimensions[0] as f32 / dimensions[1] as f32;
-        //     let proj =
-        //         cgmath::perspective(Rad(std::f32::consts::FRAC_PI_2), aspect_ratio, 0.01, 100.0)
-        //             * Matrix4::from_nonuniform_scale(1f32, 1f32, -1f32);
-
-        //     const FORWARD_VEL: f32 = 1.0 / 60.0 * 2.0;
-        //     if input_state.forward {
-        //         player_model.apply_move_forward(FORWARD_VEL);
-        //     }
-        //     if input_state.backward {
-        //         player_model.apply_move_forward(-FORWARD_VEL);
-        //     }
-        //     if input_state.left {
-        //         player_model.apply_move_right(-FORWARD_VEL);
-        //     }
-        //     if input_state.right {
-        //         player_model.apply_move_right(FORWARD_VEL);
-        //     }
-
-        //     println!("{:?}", player_model);
-
-        //     let uniform_data = vs::ty::Data {
-        //         world: <Matrix4<f32> as Transform<Point3<f32>>>::one().into(), // from(rotation).into(),
-        //         view: player_model.get_view_matrix().into(), //(view * scale).into(),
-        //         proj: proj.into(),
-        //     };
-
-        //     uniform_buffer.next(uniform_data).unwrap()
-        // };
-
-        // let set = Arc::new(
-        //     PersistentDescriptorSet::start(pipeline.clone(), 0)
-        //         .add_buffer(uniform_buffer_subbuffer)
-        //         .unwrap()
-        //         .build()
-        //         .unwrap(),
-        // );
-
         let (image_num, acquire_future) =
             match swapchain::acquire_next_image(render_test.swapchain.clone(), None) {
                 Ok(r) => r,
@@ -471,30 +394,6 @@ pub fn render_test(delegate: Arc<RefCell<RenderDelegate>>) {
         );
         input_state.d_lon = Deg(0f32);
         input_state.d_lat = Deg(0f32);
-        // let command_buffer = AutoCommandBufferBuilder::primary_one_time_submit(
-        //     render_test.device.clone(),
-        //     render_test.queue.family(),
-        // )
-        // .unwrap()
-        // .begin_render_pass(
-        //     framebuffers[image_num].clone(),
-        //     false,
-        //     vec![[0.0, 0.0, 1.0, 1.0].into(), 1f32.into()],
-        // )
-        // .unwrap()
-        // .draw_indexed(
-        //     pipeline.clone(),
-        //     &DynamicState::none(),
-        //     vec![vertex_buffer.clone(), normals_buffer.clone()],
-        //     index_buffer.clone(),
-        //     set.clone(),
-        //     (),
-        // )
-        // .unwrap()
-        // .end_render_pass()
-        // .unwrap()
-        // .build()
-        // .unwrap();
 
         let future = previous_frame
             .join(acquire_future)
@@ -535,15 +434,9 @@ pub fn render_test(delegate: Arc<RefCell<RenderDelegate>>) {
                 event: winit::WindowEvent::CursorMoved { position: pos, .. },
                 ..
             } => {
-                // println!("{} {}", pos.x, pos.y );
-
                 if let Some(op) = old_pos {
-                    let x = (pos.x - op.x) as f32;
-                    let y = (pos.y - op.y) as f32;
-
-                    input_state.d_lon = Deg(x);
-                    input_state.d_lat = Deg(y);
-
+                    input_state.d_lon = Deg((pos.x - op.x) as f32);
+                    input_state.d_lat = Deg((pos.y - op.y) as f32);
                 }
 
                 old_pos = Some(pos);

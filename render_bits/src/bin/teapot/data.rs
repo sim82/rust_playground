@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+
+
 extern crate render_bits;
 use self::render_bits::{Normal, Vertex};
 

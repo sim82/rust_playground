@@ -1,5 +1,4 @@
 extern crate render_bits;
-use render_bits::render_test;
 mod data;
 
 fn main() {
