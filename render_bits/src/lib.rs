@@ -46,6 +46,7 @@ use num_traits::clamp;
 use std::iter;
 use std::sync::Arc;
 use std::time::Instant;
+use std::cell::RefCell;
 
 #[derive(Copy, Clone)]
 pub struct Vertex {
@@ -158,7 +159,7 @@ impl std::fmt::Debug for PlayerFlyModel {
     }
 }
 
-struct RenderTest {
+pub struct RenderTest {
     instance: Arc<Instance>,
     events_loop: winit::EventsLoop,
     //window : Window,
@@ -171,11 +172,11 @@ struct RenderTest {
     images: Vec<Arc<SwapchainImage<Window>>>,
     render_pass: Arc<RenderPassAbstract + Send + Sync>,
 
-    delegate: Arc<RenderDelegate>,
+    delegate: Arc<RefCell<RenderDelegate>>,
 }
 
 impl RenderTest {
-    fn new(delegate: Arc<RenderDelegate>) -> RenderTest {
+    fn new(delegate: Arc<RefCell<RenderDelegate>>) -> RenderTest {
         let extensions = vulkano_win::required_extensions();
         let instance = Instance::new(None, &extensions, None).unwrap();
         let mut events_loop = winit::EventsLoop::new();
@@ -344,7 +345,7 @@ impl RenderTest {
             })
             .collect::<Vec<_>>();
 
-        let pipeline = self.delegate.create_pipeline(self);
+        let pipeline = self.delegate.borrow().create_pipeline(self);
         (pipeline, framebuffers)
     }
 
@@ -353,96 +354,30 @@ impl RenderTest {
     // }
 }
 
-trait RenderDelegate {
+pub trait RenderDelegate {
+    fn init(&mut self, render_test: &RenderTest) -> Box<vulkano::sync::GpuFuture>;
+
     fn create_pipeline(
         &self,
         render_test: &RenderTest,
     ) -> Arc<GraphicsPipelineAbstract + Send + Sync>;
+
+    fn frame(&mut self, render_test : &RenderTest) -> Box<vulkano::command_buffer::CommandBuffer<PoolAlloc = vulkano::command_buffer::pool::standard::StandardCommandPoolBuilder>>;
+
 }
 
-struct CrystalRenderDelgate {}
-
-impl CrystalRenderDelgate {
-    fn new() -> Arc<CrystalRenderDelgate> {
-        Arc::new(CrystalRenderDelgate {})
-    }
-}
-
-impl RenderDelegate for CrystalRenderDelgate {
-    fn create_pipeline(
-        &self,
-        render_test: &RenderTest,
-    ) -> Arc<GraphicsPipelineAbstract + Send + Sync> {
-        let vs = vs::Shader::load(render_test.device.clone()).unwrap();
-        let fs = fs::Shader::load(render_test.device.clone()).unwrap();
-        let dimensions = render_test.dimension();
-        // In the triangle example we use a dynamic viewport, as its a simple example.
-        // However in the teapot example, we recreate the pipelines with a hardcoded viewport instead.
-        // This allows the driver to optimize things, at the cost of slower window resizes.
-        // https://computergraphics.stackexchange.com/questions/5742/vulkan-best-way-of-updating-pipeline-viewport
-        Arc::new(
-            GraphicsPipeline::start()
-                .vertex_input(TwoBuffersDefinition::<Vertex, Normal>::new())
-                .vertex_shader(vs.main_entry_point(), ())
-                .triangle_list()
-                .viewports_dynamic_scissors_irrelevant(1)
-                .viewports(iter::once(Viewport {
-                    origin: [0.0, 0.0],
-                    dimensions: [dimensions[0] as f32, dimensions[1] as f32],
-                    depth_range: 0.0..1.0,
-                }))
-                .fragment_shader(fs.main_entry_point(), ())
-                .depth_stencil_simple_depth()
-                .render_pass(Subpass::from(render_test.render_pass.clone(), 0).unwrap())
-                .build(render_test.device.clone())
-                .unwrap(),
-        )
-    }
-}
-
-pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
-    let delegate = CrystalRenderDelgate::new();
-
+pub fn render_test(delegate: &mut Arc<RefCell<RenderDelegate>>) {
     let mut render_test = RenderTest::new(delegate.clone());
     //let vertex_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), vertices).unwrap();
-    let (vertex_buffer, vb_future) = ImmutableBuffer::from_iter(
-        vertices.iter().cloned(),
-        BufferUsage::all(),
-        render_test.queue.clone(),
-    )
-    .unwrap();
-    // let (vertex_buffer, vb_future) =
-    //     ImmutableBuffer::from_iter(vx.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
-
-    let normals = normals.iter().cloned();
-    let (normals_buffer, nb_future) =
-        ImmutableBuffer::from_iter(normals, BufferUsage::all(), render_test.queue.clone()).unwrap();
-
-    let indices = indices.iter().cloned();
-    let (index_buffer, ib_future) =
-        ImmutableBuffer::from_iter(indices, BufferUsage::all(), render_test.queue.clone()).unwrap();
-
-    let fence_signal = Arc::new(
-        vb_future
-            .join(nb_future.join(ib_future))
-            .then_signal_fence_and_flush()
-            .unwrap(),
-    );
-
-    let uniform_buffer =
-        CpuBufferPool::<vs::ty::Data>::new(render_test.device.clone(), BufferUsage::all());
-
-    let vs = vs::Shader::load(render_test.device.clone()).unwrap();
-    let fs = fs::Shader::load(render_test.device.clone()).unwrap();
 
     let (mut pipeline, mut framebuffers) = render_test.window_size_dependent_setup();
     let mut recreate_swapchain = false;
 
     // let mut previous_frame = Box::new(vb_future.join(nb_future.join(ib_future))) as Box<GpuFuture>;//Box::new(sync::now(device.clone())) as Box<GpuFuture>;
-    let mut previous_frame = Box::new(sync::now(render_test.device.clone())) as Box<GpuFuture>;
+    // let mut previous_frame = Box::new(sync::now(render_test.device.clone())) as Box<GpuFuture>;
+    let mut previous_frame = delegate.borrow_mut().init(&render_test);
     let rotation_start = Instant::now();
 
-    fence_signal.wait(None).unwrap();
 
     //let mut old_pos = winit::dpi::LogicalPosition::new();
 
@@ -464,51 +399,51 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
             recreate_swapchain = false;
         }
 
-        let uniform_buffer_subbuffer = {
-            let elapsed = rotation_start.elapsed();
-            let rotation =
-                elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 / 1_000_000_000.0;
-            let rotation = Matrix3::from_angle_y(Rad(rotation as f32));
+        // let uniform_buffer_subbuffer = {
+        //     let elapsed = rotation_start.elapsed();
+        //     let rotation =
+        //         elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 / 1_000_000_000.0;
+        //     let rotation = Matrix3::from_angle_y(Rad(rotation as f32));
 
-            // note: this teapot was meant for OpenGL where the origin is at the lower left
-            //       instead the origin is at the upper left in Vulkan, so we reverse the Y axis
-            let aspect_ratio = dimensions[0] as f32 / dimensions[1] as f32;
-            let proj =
-                cgmath::perspective(Rad(std::f32::consts::FRAC_PI_2), aspect_ratio, 0.01, 100.0)
-                    * Matrix4::from_nonuniform_scale(1f32, 1f32, -1f32);
+        //     // note: this teapot was meant for OpenGL where the origin is at the lower left
+        //     //       instead the origin is at the upper left in Vulkan, so we reverse the Y axis
+        //     let aspect_ratio = dimensions[0] as f32 / dimensions[1] as f32;
+        //     let proj =
+        //         cgmath::perspective(Rad(std::f32::consts::FRAC_PI_2), aspect_ratio, 0.01, 100.0)
+        //             * Matrix4::from_nonuniform_scale(1f32, 1f32, -1f32);
 
-            const FORWARD_VEL: f32 = 1.0 / 60.0 * 2.0;
-            if input_state.forward {
-                player_model.apply_move_forward(FORWARD_VEL);
-            }
-            if input_state.backward {
-                player_model.apply_move_forward(-FORWARD_VEL);
-            }
-            if input_state.left {
-                player_model.apply_move_right(-FORWARD_VEL);
-            }
-            if input_state.right {
-                player_model.apply_move_right(FORWARD_VEL);
-            }
+        //     const FORWARD_VEL: f32 = 1.0 / 60.0 * 2.0;
+        //     if input_state.forward {
+        //         player_model.apply_move_forward(FORWARD_VEL);
+        //     }
+        //     if input_state.backward {
+        //         player_model.apply_move_forward(-FORWARD_VEL);
+        //     }
+        //     if input_state.left {
+        //         player_model.apply_move_right(-FORWARD_VEL);
+        //     }
+        //     if input_state.right {
+        //         player_model.apply_move_right(FORWARD_VEL);
+        //     }
 
-            println!("{:?}", player_model);
+        //     println!("{:?}", player_model);
 
-            let uniform_data = vs::ty::Data {
-                world: <Matrix4<f32> as Transform<Point3<f32>>>::one().into(), // from(rotation).into(),
-                view: player_model.get_view_matrix().into(), //(view * scale).into(),
-                proj: proj.into(),
-            };
+        //     let uniform_data = vs::ty::Data {
+        //         world: <Matrix4<f32> as Transform<Point3<f32>>>::one().into(), // from(rotation).into(),
+        //         view: player_model.get_view_matrix().into(), //(view * scale).into(),
+        //         proj: proj.into(),
+        //     };
 
-            uniform_buffer.next(uniform_data).unwrap()
-        };
+        //     uniform_buffer.next(uniform_data).unwrap()
+        // };
 
-        let set = Arc::new(
-            PersistentDescriptorSet::start(pipeline.clone(), 0)
-                .add_buffer(uniform_buffer_subbuffer)
-                .unwrap()
-                .build()
-                .unwrap(),
-        );
+        // let set = Arc::new(
+        //     PersistentDescriptorSet::start(pipeline.clone(), 0)
+        //         .add_buffer(uniform_buffer_subbuffer)
+        //         .unwrap()
+        //         .build()
+        //         .unwrap(),
+        // );
 
         let (image_num, acquire_future) =
             match swapchain::acquire_next_image(render_test.swapchain.clone(), None) {
@@ -519,31 +454,31 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
                 }
                 Err(err) => panic!("{:?}", err),
             };
-
-        let command_buffer = AutoCommandBufferBuilder::primary_one_time_submit(
-            render_test.device.clone(),
-            render_test.queue.family(),
-        )
-        .unwrap()
-        .begin_render_pass(
-            framebuffers[image_num].clone(),
-            false,
-            vec![[0.0, 0.0, 1.0, 1.0].into(), 1f32.into()],
-        )
-        .unwrap()
-        .draw_indexed(
-            pipeline.clone(),
-            &DynamicState::none(),
-            vec![vertex_buffer.clone(), normals_buffer.clone()],
-            index_buffer.clone(),
-            set.clone(),
-            (),
-        )
-        .unwrap()
-        .end_render_pass()
-        .unwrap()
-        .build()
-        .unwrap();
+        let command_buffer = delegate.borrow_mut().frame(&render_test);
+        // let command_buffer = AutoCommandBufferBuilder::primary_one_time_submit(
+        //     render_test.device.clone(),
+        //     render_test.queue.family(),
+        // )
+        // .unwrap()
+        // .begin_render_pass(
+        //     framebuffers[image_num].clone(),
+        //     false,
+        //     vec![[0.0, 0.0, 1.0, 1.0].into(), 1f32.into()],
+        // )
+        // .unwrap()
+        // .draw_indexed(
+        //     pipeline.clone(),
+        //     &DynamicState::none(),
+        //     vec![vertex_buffer.clone(), normals_buffer.clone()],
+        //     index_buffer.clone(),
+        //     set.clone(),
+        //     (),
+        // )
+        // .unwrap()
+        // .end_render_pass()
+        // .unwrap()
+        // .build()
+        // .unwrap();
 
         let future = previous_frame
             .join(acquire_future)
@@ -640,14 +575,14 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
     }
 }
 
-mod vs {
+pub mod vs {
     vulkano_shaders::shader! {
         ty: "vertex",
         path: "src/debug_vert.glsl"
     }
 }
 
-mod fs {
+pub mod fs {
     vulkano_shaders::shader! {
         ty: "fragment",
         path: "src/debug_frag.glsl"
