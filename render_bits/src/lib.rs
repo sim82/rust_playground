@@ -169,11 +169,13 @@ struct RenderTest {
 
     swapchain: Arc<Swapchain<Window>>,
     images: Vec<Arc<SwapchainImage<Window>>>,
-    render_pass : Arc<RenderPassAbstract + Send + Sync>,
+    render_pass: Arc<RenderPassAbstract + Send + Sync>,
+
+    delegate: Arc<RenderDelegate>,
 }
 
 impl RenderTest {
-    fn new() -> RenderTest {
+    fn new(delegate: Arc<RenderDelegate>) -> RenderTest {
         let extensions = vulkano_win::required_extensions();
         let instance = Instance::new(None, &extensions, None).unwrap();
         let mut events_loop = winit::EventsLoop::new();
@@ -247,28 +249,28 @@ impl RenderTest {
         };
 
         let render_pass = Arc::new(
-                vulkano::single_pass_renderpass!(device.clone(),
-                    attachments: {
-                        color: {
-                            load: Clear,
-                            store: Store,
-                            format: swapchain.format(),
-                            samples: 1,
-                        },
-                        depth: {
-                            load: Clear,
-                            store: DontCare,
-                            format: Format::D16Unorm,
-                            samples: 1,
-                        }
+            vulkano::single_pass_renderpass!(device.clone(),
+                attachments: {
+                    color: {
+                        load: Clear,
+                        store: Store,
+                        format: swapchain.format(),
+                        samples: 1,
                     },
-                    pass: {
-                        color: [color],
-                        depth_stencil: {depth}
+                    depth: {
+                        load: Clear,
+                        store: DontCare,
+                        format: Format::D16Unorm,
+                        samples: 1,
                     }
-                )
-                .unwrap(),
-            );
+                },
+                pass: {
+                    color: [color],
+                    depth_stencil: {depth}
+                }
+            )
+            .unwrap(),
+        );
 
         RenderTest {
             instance: instance,
@@ -278,7 +280,8 @@ impl RenderTest {
             queue: queue,
             swapchain: swapchain,
             images: images,
-            render_pass : render_pass,
+            render_pass: render_pass,
+            delegate: delegate,
         }
     }
 
@@ -309,18 +312,98 @@ impl RenderTest {
             Err(err) => panic!("{:?}", err),
         };
         self.swapchain = new_swapchain;
+        self.images = new_images;
 
-        window_size_dependent_setup(
-            self.device.clone(),
-            &vs,
-            &fs,
-            &new_images,
-            self.render_pass.clone(),
+        self.window_size_dependent_setup()
+    }
+
+    fn window_size_dependent_setup(
+        &self,
+    ) -> (
+        Arc<GraphicsPipelineAbstract + Send + Sync>,
+        Vec<Arc<FramebufferAbstract + Send + Sync>>,
+    ) {
+        let dimensions = self.images[0].dimensions();
+
+        let depth_buffer =
+            AttachmentImage::transient(self.device.clone(), dimensions, Format::D16Unorm).unwrap();
+
+        let framebuffers = self
+            .images
+            .iter()
+            .map(|image| {
+                Arc::new(
+                    Framebuffer::start(self.render_pass.clone())
+                        .add(image.clone())
+                        .unwrap()
+                        .add(depth_buffer.clone())
+                        .unwrap()
+                        .build()
+                        .unwrap(),
+                ) as Arc<FramebufferAbstract + Send + Sync>
+            })
+            .collect::<Vec<_>>();
+
+        let pipeline = self.delegate.create_pipeline(self);
+        (pipeline, framebuffers)
+    }
+
+    // fn mainloop(&mut self) {
+
+    // }
+}
+
+trait RenderDelegate {
+    fn create_pipeline(
+        &self,
+        render_test: &RenderTest,
+    ) -> Arc<GraphicsPipelineAbstract + Send + Sync>;
+}
+
+struct CrystalRenderDelgate {}
+
+impl CrystalRenderDelgate {
+    fn new() -> Arc<CrystalRenderDelgate> {
+        Arc::new(CrystalRenderDelgate {})
+    }
+}
+
+impl RenderDelegate for CrystalRenderDelgate {
+    fn create_pipeline(
+        &self,
+        render_test: &RenderTest,
+    ) -> Arc<GraphicsPipelineAbstract + Send + Sync> {
+        let vs = vs::Shader::load(render_test.device.clone()).unwrap();
+        let fs = fs::Shader::load(render_test.device.clone()).unwrap();
+        let dimensions = render_test.dimension();
+        // In the triangle example we use a dynamic viewport, as its a simple example.
+        // However in the teapot example, we recreate the pipelines with a hardcoded viewport instead.
+        // This allows the driver to optimize things, at the cost of slower window resizes.
+        // https://computergraphics.stackexchange.com/questions/5742/vulkan-best-way-of-updating-pipeline-viewport
+        Arc::new(
+            GraphicsPipeline::start()
+                .vertex_input(TwoBuffersDefinition::<Vertex, Normal>::new())
+                .vertex_shader(vs.main_entry_point(), ())
+                .triangle_list()
+                .viewports_dynamic_scissors_irrelevant(1)
+                .viewports(iter::once(Viewport {
+                    origin: [0.0, 0.0],
+                    dimensions: [dimensions[0] as f32, dimensions[1] as f32],
+                    depth_range: 0.0..1.0,
+                }))
+                .fragment_shader(fs.main_entry_point(), ())
+                .depth_stencil_simple_depth()
+                .render_pass(Subpass::from(render_test.render_pass.clone(), 0).unwrap())
+                .build(render_test.device.clone())
+                .unwrap(),
         )
     }
 }
+
 pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
-    let mut render_test = RenderTest::new();
+    let delegate = CrystalRenderDelgate::new();
+
+    let mut render_test = RenderTest::new(delegate.clone());
     //let vertex_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), vertices).unwrap();
     let (vertex_buffer, vb_future) = ImmutableBuffer::from_iter(
         vertices.iter().cloned(),
@@ -352,37 +435,7 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
     let vs = vs::Shader::load(render_test.device.clone()).unwrap();
     let fs = fs::Shader::load(render_test.device.clone()).unwrap();
 
-    // let render_pass = Arc::new(
-    //     vulkano::single_pass_renderpass!(render_test.device.clone(),
-    //         attachments: {
-    //             color: {
-    //                 load: Clear,
-    //                 store: Store,
-    //                 format: render_test.swapchain.format(),
-    //                 samples: 1,
-    //             },
-    //             depth: {
-    //                 load: Clear,
-    //                 store: DontCare,
-    //                 format: Format::D16Unorm,
-    //                 samples: 1,
-    //             }
-    //         },
-    //         pass: {
-    //             color: [color],
-    //             depth_stencil: {depth}
-    //         }
-    //     )
-    //     .unwrap(),
-    // );
-
-    let (mut pipeline, mut framebuffers) = window_size_dependent_setup(
-        render_test.device.clone(),
-        &vs,
-        &fs,
-        &render_test.images,
-        render_test.render_pass.clone(),
-    );
+    let (mut pipeline, mut framebuffers) = render_test.window_size_dependent_setup();
     let mut recreate_swapchain = false;
 
     // let mut previous_frame = Box::new(vb_future.join(nb_future.join(ib_future))) as Box<GpuFuture>;//Box::new(sync::now(device.clone())) as Box<GpuFuture>;
@@ -405,22 +458,6 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
         let dimensions = render_test.dimension();
 
         if recreate_swapchain {
-            // let (new_swapchain, new_images) = match render_test.swapchain.recreate_with_dimension(dimensions) {
-            //     Ok(r) => r,
-            //     Err(SwapchainCreationError::UnsupportedDimensions) => continue,
-            //     Err(err) => panic!("{:?}", err),
-            // };
-            // render_test.swapchain = new_swapchain;
-
-            // let (new_pipeline, new_framebuffers) = window_size_dependent_setup(
-            //     render_test.device.clone(),
-            //     &vs,
-            //     &fs,
-            //     &new_images,
-            //     render_pass.clone(),
-            // );
-            // pipeline = new_pipeline;
-            // framebuffers = new_framebuffers;
             let tmp = render_test.recreate_swapchain();
             pipeline = tmp.0;
             framebuffers = tmp.1;
@@ -601,62 +638,6 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
             return;
         }
     }
-}
-
-/// This method is called once during initialization, then again whenever the window is resized
-fn window_size_dependent_setup(
-    device: Arc<Device>,
-    vs: &vs::Shader,
-    fs: &fs::Shader,
-    images: &[Arc<SwapchainImage<Window>>],
-    render_pass: Arc<RenderPassAbstract + Send + Sync>,
-) -> (
-    Arc<GraphicsPipelineAbstract + Send + Sync>,
-    Vec<Arc<FramebufferAbstract + Send + Sync>>,
-) {
-    let dimensions = images[0].dimensions();
-
-    let depth_buffer =
-        AttachmentImage::transient(device.clone(), dimensions, Format::D16Unorm).unwrap();
-
-    let framebuffers = images
-        .iter()
-        .map(|image| {
-            Arc::new(
-                Framebuffer::start(render_pass.clone())
-                    .add(image.clone())
-                    .unwrap()
-                    .add(depth_buffer.clone())
-                    .unwrap()
-                    .build()
-                    .unwrap(),
-            ) as Arc<FramebufferAbstract + Send + Sync>
-        })
-        .collect::<Vec<_>>();
-
-    // In the triangle example we use a dynamic viewport, as its a simple example.
-    // However in the teapot example, we recreate the pipelines with a hardcoded viewport instead.
-    // This allows the driver to optimize things, at the cost of slower window resizes.
-    // https://computergraphics.stackexchange.com/questions/5742/vulkan-best-way-of-updating-pipeline-viewport
-    let pipeline = Arc::new(
-        GraphicsPipeline::start()
-            .vertex_input(TwoBuffersDefinition::<Vertex, Normal>::new())
-            .vertex_shader(vs.main_entry_point(), ())
-            .triangle_list()
-            .viewports_dynamic_scissors_irrelevant(1)
-            .viewports(iter::once(Viewport {
-                origin: [0.0, 0.0],
-                dimensions: [dimensions[0] as f32, dimensions[1] as f32],
-                depth_range: 0.0..1.0,
-            }))
-            .fragment_shader(fs.main_entry_point(), ())
-            .depth_stencil_simple_depth()
-            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-            .build(device.clone())
-            .unwrap(),
-    );
-
-    (pipeline, framebuffers)
 }
 
 mod vs {
