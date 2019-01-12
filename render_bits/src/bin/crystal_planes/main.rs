@@ -11,6 +11,7 @@ use render_bits::RenderTest;
 use crystal::Planes;
 use std::cell::RefCell;
 use std::iter;
+
 use std::sync::Arc;
 
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool, ImmutableBuffer};
@@ -27,12 +28,20 @@ use cgmath::{Matrix4, Point3, Rad};
 
 use render_bits::{Normal, Vertex};
 
+#[derive(Copy, Clone)]
+pub struct Color {
+    pub color: (f32, f32, f32),
+}
+
+vulkano::impl_vertex!(Color, color);
+
 struct CrystalRenderDelgate {
     player_model: PlayerFlyModel,
     vertex_buffer: Option<Arc<ImmutableBuffer<[Vertex]>>>,
     normals_buffer: Option<Arc<ImmutableBuffer<[Normal]>>>,
+    colors_buffer: Option<Arc<CpuAccessibleBuffer<[Color]>>>,
     index_buffer: Option<Arc<ImmutableBuffer<[u16]>>>,
-    uniform_buffer: Option<CpuBufferPool<render_bits::vs::ty::Data>>,
+    uniform_buffer: Option<CpuBufferPool<vs::ty::Data>>,
 }
 
 impl CrystalRenderDelgate {
@@ -41,6 +50,7 @@ impl CrystalRenderDelgate {
             player_model: PlayerFlyModel::new(),
             vertex_buffer: None,
             normals_buffer: None,
+            colors_buffer: None,
             index_buffer: None,
             uniform_buffer: None,
         }))
@@ -84,8 +94,36 @@ impl RenderDelegate for CrystalRenderDelgate {
             render_test.queue.clone(),
         )
         .unwrap();
-        // let (vertex_buffer, vb_future) =
-        //     ImmutableBuffer::from_iter(vx.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
+
+        let mut colors_tmp = Vec::new();
+        for _ in 0..vertices.len() {
+            colors_tmp.push(Color {
+                color: (
+                    rand::random::<f32>(),
+                    rand::random::<f32>(),
+                    rand::random::<f32>(),
+                ),
+            });
+        }
+        self.colors_buffer = CpuAccessibleBuffer::from_iter(
+            render_test.device.clone(),
+            BufferUsage::all(),
+            colors_tmp.iter().map(|x| *x),
+        )
+        .ok();
+
+        // self.colors_buffer = CpuAccessibleBuffer::from_iter(
+        //     render_test.device.clone(),
+        //     BufferUsage::all(),
+        //     std::iter::repeat_with(|| Color {
+        //         rgb: (
+        //             rand::random::<f32>(),
+        //             rand::random::<f32>(),
+        //             rand::random::<f32>(),
+        //         ),
+        //     })
+        //     .take(vertices.len())
+        // ).ok();
 
         let normals = normals.iter().cloned();
         let (normals_buffer, nb_future) =
@@ -97,10 +135,8 @@ impl RenderDelegate for CrystalRenderDelgate {
             ImmutableBuffer::from_iter(indices, BufferUsage::all(), render_test.queue.clone())
                 .unwrap();
 
-        let uniform_buffer = CpuBufferPool::<render_bits::vs::ty::Data>::new(
-            render_test.device.clone(),
-            BufferUsage::all(),
-        );
+        let uniform_buffer =
+            CpuBufferPool::<vs::ty::Data>::new(render_test.device.clone(), BufferUsage::all());
         self.vertex_buffer = Some(vertex_buffer);
         self.normals_buffer = Some(normals_buffer);
         self.index_buffer = Some(index_buffer);
@@ -113,8 +149,8 @@ impl RenderDelegate for CrystalRenderDelgate {
         &self,
         render_test: &RenderTest,
     ) -> Arc<GraphicsPipelineAbstract + Send + Sync> {
-        let vs = render_bits::vs::Shader::load(render_test.device.clone()).unwrap();
-        let fs = render_bits::fs::Shader::load(render_test.device.clone()).unwrap();
+        let vs = vs::Shader::load(render_test.device.clone()).unwrap();
+        let fs = fs::Shader::load(render_test.device.clone()).unwrap();
         let dimensions = render_test.dimension();
         // In the triangle example we use a dynamic viewport, as its a simple example.
         // However in the teapot example, we recreate the pipelines with a hardcoded viewport instead.
@@ -122,9 +158,11 @@ impl RenderDelegate for CrystalRenderDelgate {
         // https://computergraphics.stackexchange.com/questions/5742/vulkan-best-way-of-updating-pipeline-viewport
         Arc::new(
             GraphicsPipeline::start()
-                .vertex_input(TwoBuffersDefinition::<Vertex, Normal>::new())
+                .vertex_input(TwoBuffersDefinition::<Vertex, Color>::new())
                 .vertex_shader(vs.main_entry_point(), ())
                 .triangle_list()
+                .front_face_counter_clockwise() // face winding swapped by y-swap in vertex shader...
+                .cull_mode_back()
                 .viewports_dynamic_scissors_irrelevant(1)
                 .viewports(iter::once(Viewport {
                     origin: [0.0, 0.0],
@@ -153,12 +191,14 @@ impl RenderDelegate for CrystalRenderDelgate {
         match (
             &self.vertex_buffer,
             &self.normals_buffer,
+            &self.colors_buffer,
             &self.index_buffer,
             &self.uniform_buffer,
         ) {
             (
                 Some(vertex_buffer),
                 Some(normals_buffer),
+                Some(colors_buffer),
                 Some(index_buffer),
                 Some(uniform_buffer),
             ) => {
@@ -193,7 +233,7 @@ impl RenderDelegate for CrystalRenderDelgate {
 
                     println!("{:?}", self.player_model);
 
-                    let uniform_data = render_bits::vs::ty::Data {
+                    let uniform_data = vs::ty::Data {
                         world: <Matrix4<f32> as Transform<Point3<f32>>>::one().into(), // from(rotation).into(),
                         view: self.player_model.get_view_matrix().into(), //(view * scale).into(),
                         proj: proj.into(),
@@ -224,7 +264,7 @@ impl RenderDelegate for CrystalRenderDelgate {
                 .draw_indexed(
                     pipeline.clone(),
                     &DynamicState::none(),
-                    vec![vertex_buffer.clone(), normals_buffer.clone()],
+                    vec![vertex_buffer.clone(), colors_buffer.clone()],
                     index_buffer.clone(),
                     set.clone(),
                     (),
@@ -246,4 +286,18 @@ fn main() {
     let delegate = CrystalRenderDelgate::new();
 
     render_bits::render_test(delegate);
+}
+
+pub mod vs {
+    vulkano_shaders::shader! {
+        ty: "vertex",
+        path: "src/bin/crystal_planes/debug_vert.glsl"
+    }
+}
+
+pub mod fs {
+    vulkano_shaders::shader! {
+        ty: "fragment",
+        path: "src/bin/crystal_planes/debug_frag.glsl"
+    }
 }

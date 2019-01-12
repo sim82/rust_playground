@@ -470,17 +470,3 @@ pub fn render_test(delegate: Arc<RefCell<RenderDelegate>>) {
         }
     }
 }
-
-pub mod vs {
-    vulkano_shaders::shader! {
-        ty: "vertex",
-        path: "src/debug_vert.glsl"
-    }
-}
-
-pub mod fs {
-    vulkano_shaders::shader! {
-        ty: "fragment",
-        path: "src/debug_frag.glsl"
-    }
-}

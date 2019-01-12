@@ -14,5 +14,6 @@ vulkano-win = "0.11.1"
 #capnp_test = { path = "../capnp_test" }
 crystal = { path = "../crystal" }
 num-traits = "0.2"
+rand = "0.6"
 
 
