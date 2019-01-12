@@ -167,8 +167,9 @@ struct RenderTest {
     device: Arc<Device>,
     queue: Arc<vulkano::device::Queue>,
 
-    swapchain : Arc<Swapchain<Window>>,
-    images : Vec<Arc<SwapchainImage<Window>>>,
+    swapchain: Arc<Swapchain<Window>>,
+    images: Vec<Arc<SwapchainImage<Window>>>,
+    render_pass : Arc<RenderPassAbstract + Send + Sync>,
 }
 
 impl RenderTest {
@@ -181,10 +182,10 @@ impl RenderTest {
             .unwrap();
 
         let mut dimensions = {
-
             let window = surface.window();
             if let Some(dimensions) = window.get_inner_size() {
-                let dimensions: (u32, u32) = dimensions.to_physical(window.get_hidpi_factor()).into();
+                let dimensions: (u32, u32) =
+                    dimensions.to_physical(window.get_hidpi_factor()).into();
                 [dimensions.0, dimensions.1]
             } else {
                 panic!("panic")
@@ -221,7 +222,7 @@ impl RenderTest {
         // let window = surface.window();
         let (mut swapchain, images) = {
             let physical = PhysicalDevice::enumerate(&instance).next().unwrap();
-            
+
             let caps = surface.capabilities(physical).unwrap();
             let usage = caps.supported_usage_flags;
             let format = caps.supported_formats[0].0;
@@ -245,38 +246,88 @@ impl RenderTest {
             .unwrap()
         };
 
+        let render_pass = Arc::new(
+                vulkano::single_pass_renderpass!(device.clone(),
+                    attachments: {
+                        color: {
+                            load: Clear,
+                            store: Store,
+                            format: swapchain.format(),
+                            samples: 1,
+                        },
+                        depth: {
+                            load: Clear,
+                            store: DontCare,
+                            format: Format::D16Unorm,
+                            samples: 1,
+                        }
+                    },
+                    pass: {
+                        color: [color],
+                        depth_stencil: {depth}
+                    }
+                )
+                .unwrap(),
+            );
+
         RenderTest {
             instance: instance,
             events_loop: events_loop,
             surface: surface,
             device: device,
             queue: queue,
-            swapchain : swapchain,
-            images : images
+            swapchain: swapchain,
+            images: images,
+            render_pass : render_pass,
         }
     }
 
     fn window(&self) -> &Window {
         self.surface.window()
     }
-    fn dimension(&self) -> [u32 ; 2] {
+    fn dimension(&self) -> [u32; 2] {
         let window = self.window();
         if let Some(dimensions) = window.get_inner_size() {
-            let dimensions: (u32, u32) =
-                dimensions.to_physical(window.get_hidpi_factor()).into();
+            let dimensions: (u32, u32) = dimensions.to_physical(window.get_hidpi_factor()).into();
             [dimensions.0, dimensions.1]
         } else {
             panic!("panic")
         }
     }
+    fn recreate_swapchain(
+        &mut self,
+    ) -> (
+        Arc<GraphicsPipelineAbstract + Send + Sync>,
+        Vec<Arc<FramebufferAbstract + Send + Sync>>,
+    ) {
+        let dimensions = self.dimension();
+        let vs = vs::Shader::load(self.device.clone()).unwrap();
+        let fs = fs::Shader::load(self.device.clone()).unwrap();
+        let (new_swapchain, new_images) = match self.swapchain.recreate_with_dimension(dimensions) {
+            Ok(r) => r,
+            // Err(SwapchainCreationError::UnsupportedDimensions) => panic!("{:?}", err),
+            Err(err) => panic!("{:?}", err),
+        };
+        self.swapchain = new_swapchain;
+
+        window_size_dependent_setup(
+            self.device.clone(),
+            &vs,
+            &fs,
+            &new_images,
+            self.render_pass.clone(),
+        )
+    }
 }
 pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
-
     let mut render_test = RenderTest::new();
     //let vertex_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), vertices).unwrap();
-    let (vertex_buffer, vb_future) =
-        ImmutableBuffer::from_iter(vertices.iter().cloned(), BufferUsage::all(), render_test.queue.clone())
-            .unwrap();
+    let (vertex_buffer, vb_future) = ImmutableBuffer::from_iter(
+        vertices.iter().cloned(),
+        BufferUsage::all(),
+        render_test.queue.clone(),
+    )
+    .unwrap();
     // let (vertex_buffer, vb_future) =
     //     ImmutableBuffer::from_iter(vx.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
 
@@ -295,37 +346,43 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
             .unwrap(),
     );
 
-    let uniform_buffer = CpuBufferPool::<vs::ty::Data>::new(render_test.device.clone(), BufferUsage::all());
+    let uniform_buffer =
+        CpuBufferPool::<vs::ty::Data>::new(render_test.device.clone(), BufferUsage::all());
 
     let vs = vs::Shader::load(render_test.device.clone()).unwrap();
     let fs = fs::Shader::load(render_test.device.clone()).unwrap();
 
-    let render_pass = Arc::new(
-        vulkano::single_pass_renderpass!(render_test.device.clone(),
-            attachments: {
-                color: {
-                    load: Clear,
-                    store: Store,
-                    format: render_test.swapchain.format(),
-                    samples: 1,
-                },
-                depth: {
-                    load: Clear,
-                    store: DontCare,
-                    format: Format::D16Unorm,
-                    samples: 1,
-                }
-            },
-            pass: {
-                color: [color],
-                depth_stencil: {depth}
-            }
-        )
-        .unwrap(),
-    );
+    // let render_pass = Arc::new(
+    //     vulkano::single_pass_renderpass!(render_test.device.clone(),
+    //         attachments: {
+    //             color: {
+    //                 load: Clear,
+    //                 store: Store,
+    //                 format: render_test.swapchain.format(),
+    //                 samples: 1,
+    //             },
+    //             depth: {
+    //                 load: Clear,
+    //                 store: DontCare,
+    //                 format: Format::D16Unorm,
+    //                 samples: 1,
+    //             }
+    //         },
+    //         pass: {
+    //             color: [color],
+    //             depth_stencil: {depth}
+    //         }
+    //     )
+    //     .unwrap(),
+    // );
 
-    let (mut pipeline, mut framebuffers) =
-        window_size_dependent_setup(render_test.device.clone(), &vs, &fs, &render_test.images, render_pass.clone());
+    let (mut pipeline, mut framebuffers) = window_size_dependent_setup(
+        render_test.device.clone(),
+        &vs,
+        &fs,
+        &render_test.images,
+        render_test.render_pass.clone(),
+    );
     let mut recreate_swapchain = false;
 
     // let mut previous_frame = Box::new(vb_future.join(nb_future.join(ib_future))) as Box<GpuFuture>;//Box::new(sync::now(device.clone())) as Box<GpuFuture>;
@@ -348,24 +405,25 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
         let dimensions = render_test.dimension();
 
         if recreate_swapchain {
+            // let (new_swapchain, new_images) = match render_test.swapchain.recreate_with_dimension(dimensions) {
+            //     Ok(r) => r,
+            //     Err(SwapchainCreationError::UnsupportedDimensions) => continue,
+            //     Err(err) => panic!("{:?}", err),
+            // };
+            // render_test.swapchain = new_swapchain;
 
-            let (new_swapchain, new_images) = match render_test.swapchain.recreate_with_dimension(dimensions) {
-                Ok(r) => r,
-                Err(SwapchainCreationError::UnsupportedDimensions) => continue,
-                Err(err) => panic!("{:?}", err),
-            };
-            render_test.swapchain = new_swapchain;
-
-            let (new_pipeline, new_framebuffers) = window_size_dependent_setup(
-                render_test.device.clone(),
-                &vs,
-                &fs,
-                &new_images,
-                render_pass.clone(),
-            );
-            pipeline = new_pipeline;
-            framebuffers = new_framebuffers;
-
+            // let (new_pipeline, new_framebuffers) = window_size_dependent_setup(
+            //     render_test.device.clone(),
+            //     &vs,
+            //     &fs,
+            //     &new_images,
+            //     render_pass.clone(),
+            // );
+            // pipeline = new_pipeline;
+            // framebuffers = new_framebuffers;
+            let tmp = render_test.recreate_swapchain();
+            pipeline = tmp.0;
+            framebuffers = tmp.1;
             recreate_swapchain = false;
         }
 
@@ -425,34 +483,40 @@ pub fn render_test(vertices: &[Vertex], normals: &[Normal], indices: &[u16]) {
                 Err(err) => panic!("{:?}", err),
             };
 
-        let command_buffer =
-            AutoCommandBufferBuilder::primary_one_time_submit(render_test.device.clone(), render_test.queue.family())
-                .unwrap()
-                .begin_render_pass(
-                    framebuffers[image_num].clone(),
-                    false,
-                    vec![[0.0, 0.0, 1.0, 1.0].into(), 1f32.into()],
-                )
-                .unwrap()
-                .draw_indexed(
-                    pipeline.clone(),
-                    &DynamicState::none(),
-                    vec![vertex_buffer.clone(), normals_buffer.clone()],
-                    index_buffer.clone(),
-                    set.clone(),
-                    (),
-                )
-                .unwrap()
-                .end_render_pass()
-                .unwrap()
-                .build()
-                .unwrap();
+        let command_buffer = AutoCommandBufferBuilder::primary_one_time_submit(
+            render_test.device.clone(),
+            render_test.queue.family(),
+        )
+        .unwrap()
+        .begin_render_pass(
+            framebuffers[image_num].clone(),
+            false,
+            vec![[0.0, 0.0, 1.0, 1.0].into(), 1f32.into()],
+        )
+        .unwrap()
+        .draw_indexed(
+            pipeline.clone(),
+            &DynamicState::none(),
+            vec![vertex_buffer.clone(), normals_buffer.clone()],
+            index_buffer.clone(),
+            set.clone(),
+            (),
+        )
+        .unwrap()
+        .end_render_pass()
+        .unwrap()
+        .build()
+        .unwrap();
 
         let future = previous_frame
             .join(acquire_future)
             .then_execute(render_test.queue.clone(), command_buffer)
             .unwrap()
-            .then_swapchain_present(render_test.queue.clone(), render_test.swapchain.clone(), image_num)
+            .then_swapchain_present(
+                render_test.queue.clone(),
+                render_test.swapchain.clone(),
+                image_num,
+            )
             .then_signal_fence_and_flush();
 
         match future {
