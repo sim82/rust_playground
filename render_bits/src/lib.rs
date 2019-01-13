@@ -8,7 +8,7 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-// inital vulkano initialization base on the teapot.rs example from vulkano-rs
+// inital vulkano initialization based on the teapot.rs example from vulkano-rs
 
 extern crate cgmath;
 extern crate num_traits;
@@ -83,6 +83,7 @@ pub struct InputState {
     pub left: bool,
     pub right: bool,
     pub action1: bool,
+    pub run: bool,
     pub d_lon: Deg<f32>,
     pub d_lat: Deg<f32>,
 }
@@ -95,6 +96,7 @@ impl InputState {
             left: false,
             right: false,
             action1: false,
+            run: false,
             d_lon: Deg(0f32),
             d_lat: Deg(0f32),
         }
@@ -469,6 +471,9 @@ pub fn render_test(delegate: Arc<RefCell<RenderDelegate>>) {
                     winit::VirtualKeyCode::A => input_state.left = down,
                     winit::VirtualKeyCode::D => input_state.right = down,
                     winit::VirtualKeyCode::Q => input_state.action1 = down,
+                    winit::VirtualKeyCode::LShift | winit::VirtualKeyCode::RShift => {
+                        input_state.run = down
+                    }
                     winit::VirtualKeyCode::F3 => done = true,
                     _ => {}
                 }

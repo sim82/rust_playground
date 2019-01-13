@@ -155,7 +155,7 @@ impl std::fmt::Display for DisplayWrap<[i32; 4]> {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum Dir {
     ZxPos,
     ZxNeg,
@@ -292,26 +292,29 @@ impl Planes for PlanesMerged {
             ]
             .iter()
             {
-                if let Some(p) = bitmap.step(this_point, dir) {
-                    if !Bitmap::get(bitmap, p) {
-                        let local_corners: [Vec3i; NUM_PLANE_CORNERS] = dir.get_corners();
-                        assert!(local_corners.len() == 4);
-                        let corners = local_corners.iter().map(|x| this_point + x);
-                        let mut points = [0; NUM_PLANE_CORNERS];
+                let has_neighbor = match bitmap.step(this_point, dir) {
+                    Some(p) => Bitmap::get(bitmap, p),
+                    None => false,
+                };
 
-                        for (i, c) in corners.enumerate() {
-                            match self.vertices.entry(c) {
-                                hash_map::Entry::Occupied(entry) => points[i] = *entry.get(),
-                                hash_map::Entry::Vacant(entry) => {
-                                    entry.insert(self.num_vertices);
-                                    points[i] = self.num_vertices;
-                                    self.num_vertices += 1;
-                                    self.dirs.push(*dir);
-                                }
+                if !has_neighbor {
+                    let local_corners: [Vec3i; NUM_PLANE_CORNERS] = dir.get_corners();
+                    assert!(local_corners.len() == 4);
+                    let corners = local_corners.iter().map(|x| this_point + x);
+                    let mut points = [0; NUM_PLANE_CORNERS];
+
+                    for (i, c) in corners.enumerate() {
+                        match self.vertices.entry(c) {
+                            hash_map::Entry::Occupied(entry) => points[i] = *entry.get(),
+                            hash_map::Entry::Vacant(entry) => {
+                                entry.insert(self.num_vertices);
+                                points[i] = self.num_vertices;
+                                self.num_vertices += 1;
+                                self.dirs.push(*dir);
                             }
                         }
-                        self.planes.push(points);
                     }
+                    self.planes.push(points);
                 }
             }
         }
@@ -377,20 +380,23 @@ impl Planes for PlanesSep {
             ]
             .iter()
             {
-                if let Some(p) = bitmap.step(this_point, dir) {
-                    if !Bitmap::get(bitmap, p) {
-                        let local_corners: [Vec3i; NUM_PLANE_CORNERS] = dir.get_corners();
-                        assert!(local_corners.len() == 4);
-                        let corners = local_corners.iter().map(|x| this_point + x);
-                        let mut points = [0; NUM_PLANE_CORNERS];
+                let create_plane = match bitmap.step(this_point, dir) {
+                    Some(p) => !Bitmap::get(bitmap, p),
+                    None => *dir != Dir::ZxNeg, // don't create downfacing planes on bottom
+                };
 
-                        for (i, c) in corners.enumerate() {
-                            points[i] = self.vertices.len() as i32;
-                            self.vertices.push(c);
-                            self.dirs.push(*dir);
-                        }
-                        self.planes.push(points);
+                if create_plane {
+                    let local_corners: [Vec3i; NUM_PLANE_CORNERS] = dir.get_corners();
+                    assert!(local_corners.len() == 4);
+                    let corners = local_corners.iter().map(|x| this_point + x);
+                    let mut points = [0; NUM_PLANE_CORNERS];
+
+                    for (i, c) in corners.enumerate() {
+                        points[i] = self.vertices.len() as i32;
+                        self.vertices.push(c);
+                        self.dirs.push(*dir);
                     }
+                    self.planes.push(points);
                 }
             }
         }
@@ -464,7 +470,6 @@ pub fn read_map<P: AsRef<Path>>(filename: P) -> std::io::Result<BlockMap> {
         let mut line = String::new();
         reader.read_line(&mut line)?;
 
-        // let h : Vec<usize> = header.trim().split_whitespace().map(|x| x.parse::<usize>().unwrap()).collect();
         let h: Vec<i32> = line
             .trim()
             .split_whitespace()
@@ -473,25 +478,16 @@ pub fn read_map<P: AsRef<Path>>(filename: P) -> std::io::Result<BlockMap> {
         width = h[0];
         height = h[1];
     }
-    // println!( "size: {} {}", h[0], h[1]);
 
     let slice = read_map_slice(&mut reader, Vec2i::new(width, height))?;
     slice.print();
 
     let slice = slice.pumped(); //.pumped();
     let max = slice.max();
-    // println!( "max: {}", slice.max());
-    // let mut bitmap = Bitmap::new(width, height,
-    // for i in 0..height {
-
-    // }
-
     let real_size = slice.size();
 
     println!("real size: {:?}", real_size);
     let mut bm = BlockMap::default((real_size.x as usize, *max as usize, real_size.y as usize)); //Bitmap::new(width, *max, height);
     bm.add(&slice);
-    // bm.print();
-
     Ok(bm)
 }

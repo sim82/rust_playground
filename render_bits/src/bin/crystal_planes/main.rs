@@ -240,17 +240,18 @@ impl RenderDelegate for CrystalRenderDelgate {
         self.player_model.apply_delta_lat(input_state.d_lat);
 
         const FORWARD_VEL: f32 = 1.0 / 60.0 * 2.0;
+        let boost = if input_state.run { 3.0 } else { 1.0 };
         if input_state.forward {
-            self.player_model.apply_move_forward(FORWARD_VEL);
+            self.player_model.apply_move_forward(FORWARD_VEL * boost);
         }
         if input_state.backward {
-            self.player_model.apply_move_forward(-FORWARD_VEL);
+            self.player_model.apply_move_forward(-FORWARD_VEL * boost);
         }
         if input_state.left {
-            self.player_model.apply_move_right(-FORWARD_VEL);
+            self.player_model.apply_move_right(-FORWARD_VEL * boost);
         }
         if input_state.right {
-            self.player_model.apply_move_right(FORWARD_VEL);
+            self.player_model.apply_move_right(FORWARD_VEL * boost);
         }
 
         println!("{:?}", self.player_model);
