@@ -344,6 +344,8 @@ pub trait RenderDelegate {
         render_test: &RenderTest,
     ) -> Arc<GraphicsPipelineAbstract + Send + Sync>;
 
+    fn update(&mut self, render_test: &RenderTest) -> Box<GpuFuture>;
+
     fn frame(
         &mut self,
         render_test: &RenderTest,
@@ -386,6 +388,8 @@ pub fn render_test(delegate: Arc<RefCell<RenderDelegate>>) {
                 }
                 Err(err) => panic!("{:?}", err),
             };
+
+        let update_fut = delegate.borrow_mut().update(&render_test);
         let command_buffer = delegate.borrow_mut().frame(
             &render_test,
             &input_state,
@@ -396,6 +400,7 @@ pub fn render_test(delegate: Arc<RefCell<RenderDelegate>>) {
         input_state.d_lat = Deg(0f32);
 
         let future = previous_frame
+            .join(update_fut)
             .join(acquire_future)
             .then_execute(render_test.queue.clone(), command_buffer)
             .unwrap()

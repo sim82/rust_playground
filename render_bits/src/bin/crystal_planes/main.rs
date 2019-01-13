@@ -1,5 +1,6 @@
 extern crate cgmath;
 extern crate crystal;
+extern crate rand;
 extern crate render_bits;
 extern crate vulkano;
 
@@ -11,10 +12,13 @@ use render_bits::RenderTest;
 use crystal::Planes;
 use std::cell::RefCell;
 use std::iter;
-
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool, ImmutableBuffer};
+use vulkano::buffer::cpu_pool::CpuBufferPoolChunk;
+use vulkano::buffer::{
+    BufferUsage, CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer, ImmutableBuffer,
+};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::framebuffer::{FramebufferAbstract, Subpass};
@@ -26,6 +30,7 @@ use vulkano::sync::GpuFuture;
 use cgmath::prelude::*;
 use cgmath::{Matrix4, Point3, Rad};
 
+use rand::prelude::*;
 use render_bits::{Normal, Vertex};
 
 #[derive(Copy, Clone)]
@@ -39,9 +44,44 @@ struct CrystalRenderDelgate {
     player_model: PlayerFlyModel,
     vertex_buffer: Option<Arc<ImmutableBuffer<[Vertex]>>>,
     normals_buffer: Option<Arc<ImmutableBuffer<[Normal]>>>,
-    colors_buffer: Option<Arc<CpuAccessibleBuffer<[Color]>>>,
+    colors_buffer_gpu:
+        Option<Arc<CpuBufferPoolChunk<Color, Arc<vulkano::memory::pool::StdMemoryPool>>>>,
+    colors_buffer_pool: Option<CpuBufferPool<Color>>,
+
+    // colors_buffer: Option<Arc<CpuAccessibleBuffer<[Color]>>>,
     index_buffer: Option<Arc<ImmutableBuffer<[u16]>>>,
     uniform_buffer: Option<CpuBufferPool<vs::ty::Data>>,
+
+    colors_cpu: Vec<Color>,
+
+    last_time: std::time::Instant,
+}
+
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (f32, f32, f32) {
+    // if s <= 0.0 {
+    //     // < is bogus, just shuts up warnings
+    //     return (v, v, v);
+    // } else {
+    let mut hh = h;
+    if hh >= 360.0 {
+        hh = 0.0;
+    }
+    hh /= 60.0;
+    let i = hh as i32; //.into();
+    let ff = hh - i as f32;
+    let p = v * (1.0 - s);
+    let q = v * (1.0 - (s * ff));
+    let t = v * (1.0 - (s * (1.0 - ff)));
+
+    match i {
+        0 => (v, t, p),
+        1 => (q, v, p),
+        2 => (p, v, t),
+        3 => (p, q, v),
+        4 => (t, p, v),
+        _ => (v, p, q),
+    }
+    // }
 }
 
 impl CrystalRenderDelgate {
@@ -50,9 +90,13 @@ impl CrystalRenderDelgate {
             player_model: PlayerFlyModel::new(),
             vertex_buffer: None,
             normals_buffer: None,
-            colors_buffer: None,
+            colors_buffer_gpu: None,
+            colors_buffer_pool: None,
+            // colors_buffer: None,
             index_buffer: None,
             uniform_buffer: None,
+            colors_cpu: Vec::new(),
+            last_time: Instant::now(),
         }))
     }
 }
@@ -83,6 +127,7 @@ impl RenderDelegate for CrystalRenderDelgate {
             .planes_iter()
             .flat_map(|plane| {
                 [plane[0], plane[1], plane[2], plane[0], plane[2], plane[3]]
+                    //[plane[0], plane[1], plane[2]]
                     .iter()
                     .map(|y| *y as u16)
                     .collect::<Vec<_>>()
@@ -95,9 +140,9 @@ impl RenderDelegate for CrystalRenderDelgate {
         )
         .unwrap();
 
-        let mut colors_tmp = Vec::new();
+        // let mut colors_tmp = Vec::new();
         for _ in 0..vertices.len() {
-            colors_tmp.push(Color {
+            self.colors_cpu.push(Color {
                 color: (
                     rand::random::<f32>(),
                     rand::random::<f32>(),
@@ -105,25 +150,6 @@ impl RenderDelegate for CrystalRenderDelgate {
                 ),
             });
         }
-        self.colors_buffer = CpuAccessibleBuffer::from_iter(
-            render_test.device.clone(),
-            BufferUsage::all(),
-            colors_tmp.iter().map(|x| *x),
-        )
-        .ok();
-
-        // self.colors_buffer = CpuAccessibleBuffer::from_iter(
-        //     render_test.device.clone(),
-        //     BufferUsage::all(),
-        //     std::iter::repeat_with(|| Color {
-        //         rgb: (
-        //             rand::random::<f32>(),
-        //             rand::random::<f32>(),
-        //             rand::random::<f32>(),
-        //         ),
-        //     })
-        //     .take(vertices.len())
-        // ).ok();
 
         let normals = normals.iter().cloned();
         let (normals_buffer, nb_future) =
@@ -141,6 +167,11 @@ impl RenderDelegate for CrystalRenderDelgate {
         self.normals_buffer = Some(normals_buffer);
         self.index_buffer = Some(index_buffer);
         self.uniform_buffer = Some(uniform_buffer);
+
+        self.colors_buffer_pool = Some(CpuBufferPool::new(
+            render_test.device.clone(),
+            BufferUsage::all(),
+        ));
 
         Box::new(vb_future.join(nb_future.join(ib_future)))
     }
@@ -177,6 +208,39 @@ impl RenderDelegate for CrystalRenderDelgate {
         )
     }
 
+    fn update(&mut self, render_test: &RenderTest) -> Box<GpuFuture> {
+        let now = Instant::now();
+        let d_time = now - self.last_time;
+        self.last_time = now;
+
+        println!("time: {:?}", d_time);
+        let mut rng = rand::thread_rng();
+        for plane in self.colors_cpu.chunks_mut(4) {
+            // let color = (
+            //     rand::random::<f32>(),
+            //     rand::random::<f32>(),
+            //     rand::random::<f32>(),
+            // );
+            let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0); //random::<f32>(), 1.0, 1.0);
+
+            plane[0].color = color;
+            plane[1].color = color;
+            plane[2].color = color;
+            plane[3].color = color;
+        }
+
+        match self.colors_buffer_pool {
+            Some(ref colors_buffer_pool) => {
+                let chunk = colors_buffer_pool
+                    .chunk(self.colors_cpu.iter().map(|x| *x))
+                    .unwrap();
+                self.colors_buffer_gpu = Some(Arc::new(chunk));
+            }
+            _ => panic!("panic"),
+        };
+        Box::new(vulkano::sync::now(render_test.device.clone()))
+    }
+
     fn frame(
         &mut self,
         render_test: &RenderTest,
@@ -191,14 +255,16 @@ impl RenderDelegate for CrystalRenderDelgate {
         match (
             &self.vertex_buffer,
             &self.normals_buffer,
-            &self.colors_buffer,
+            // &self.colors_buffer,
+            &self.colors_buffer_gpu,
             &self.index_buffer,
             &self.uniform_buffer,
         ) {
             (
                 Some(vertex_buffer),
                 Some(normals_buffer),
-                Some(colors_buffer),
+                // Some(colors_buffer),
+                Some(colors_buffer_gpu),
                 Some(index_buffer),
                 Some(uniform_buffer),
             ) => {
@@ -242,6 +308,18 @@ impl RenderDelegate for CrystalRenderDelgate {
                     uniform_buffer.next(uniform_data).unwrap()
                 };
 
+                // match colors_buffer.write() {
+                //     Ok(mut locked) => {
+                //         for v in locked.iter_mut() {
+                //             v.color.0 = rand::random::<f32>();
+                //             v.color.1 = rand::random::<f32>();
+                //             v.color.2 = rand::random::<f32>();
+
+                //         }
+                //     }
+                //     _ => println!( "buffer locked" )
+                // }
+
                 let set = Arc::new(
                     PersistentDescriptorSet::start(pipeline.clone(), 0)
                         .add_buffer(uniform_buffer_subbuffer)
@@ -255,6 +333,7 @@ impl RenderDelegate for CrystalRenderDelgate {
                     render_test.queue.family(),
                 )
                 .unwrap()
+                // .update_buffer(colors_buffer_gpu.clone(), self.colors_cpu[..]).unwrap()
                 .begin_render_pass(
                     framebuffer.clone(),
                     false,
@@ -264,7 +343,7 @@ impl RenderDelegate for CrystalRenderDelgate {
                 .draw_indexed(
                     pipeline.clone(),
                     &DynamicState::none(),
-                    vec![vertex_buffer.clone(), colors_buffer.clone()],
+                    vec![vertex_buffer.clone(), colors_buffer_gpu.clone()],
                     index_buffer.clone(),
                     set.clone(),
                     (),

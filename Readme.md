@@ -1,4 +1,4 @@
- start with:
+start with:
 ```
  cargo run --bin crystal_planes
 ```
