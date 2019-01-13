@@ -8,7 +8,17 @@ use std::io::{BufRead, BufReader};
 use std::iter::Iterator;
 use std::path::Path;
 
+pub mod rad;
+
 pub type BlockMap = ndarray::Array3<bool>;
+
+pub type Vec2i = cgmath::Vector2<i32>;
+
+pub type Vec3i = cgmath::Vector3<i32>;
+pub type Vec3 = cgmath::Vector3<f32>;
+
+pub type Point2i = cgmath::Point2<i32>;
+pub type Point3i = cgmath::Point3<i32>;
 
 const NUM_PLANE_CORNERS: usize = 4;
 
@@ -122,14 +132,6 @@ impl MapSlice {
         MapSlice(out)
     }
 }
-
-pub type Vec2i = cgmath::Vector2<i32>;
-
-pub type Vec3i = cgmath::Vector3<i32>;
-pub type Vec3 = cgmath::Vector3<f32>;
-
-pub type Point2i = cgmath::Point2<i32>;
-pub type Point3i = cgmath::Point3<i32>;
 
 struct DisplayWrap<T>(T);
 
