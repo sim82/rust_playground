@@ -58,10 +58,6 @@ struct CrystalRenderDelgate {
 }
 
 fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (f32, f32, f32) {
-    // if s <= 0.0 {
-    //     // < is bogus, just shuts up warnings
-    //     return (v, v, v);
-    // } else {
     let mut hh = h;
     if hh >= 360.0 {
         hh = 0.0;
@@ -72,7 +68,6 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (f32, f32, f32) {
     let p = v * (1.0 - s);
     let q = v * (1.0 - (s * ff));
     let t = v * (1.0 - (s * (1.0 - ff)));
-
     match i {
         0 => (v, t, p),
         1 => (q, v, p),
@@ -81,7 +76,6 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (f32, f32, f32) {
         4 => (t, p, v),
         _ => (v, p, q),
     }
-    // }
 }
 
 impl CrystalRenderDelgate {
@@ -307,18 +301,6 @@ impl RenderDelegate for CrystalRenderDelgate {
 
                     uniform_buffer.next(uniform_data).unwrap()
                 };
-
-                // match colors_buffer.write() {
-                //     Ok(mut locked) => {
-                //         for v in locked.iter_mut() {
-                //             v.color.0 = rand::random::<f32>();
-                //             v.color.1 = rand::random::<f32>();
-                //             v.color.2 = rand::random::<f32>();
-
-                //         }
-                //     }
-                //     _ => println!( "buffer locked" )
-                // }
 
                 let set = Arc::new(
                     PersistentDescriptorSet::start(pipeline.clone(), 0)
