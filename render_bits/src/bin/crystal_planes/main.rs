@@ -49,7 +49,7 @@ struct CrystalRenderDelgate {
     colors_buffer_pool: Option<CpuBufferPool<Color>>,
 
     // colors_buffer: Option<Arc<CpuAccessibleBuffer<[Color]>>>,
-    index_buffer: Option<Arc<ImmutableBuffer<[u16]>>>,
+    index_buffer: Option<Arc<ImmutableBuffer<[u32]>>>,
     uniform_buffer: Option<CpuBufferPool<vs::ty::Data>>,
 
     colors_cpu: Vec<Color>,
@@ -100,15 +100,20 @@ impl RenderDelegate for CrystalRenderDelgate {
         let bm = crystal::read_map("hidden_ramp.txt").expect("could not read file");
         let mut planes = crystal::PlanesSep::new();
         planes.create_planes(&bm);
-        planes.print();
+        // planes.print();
 
         let mut x: Vec<(&crystal::Point3i, i32)> = planes.vertex_iter().collect();
         x.sort_by_key(|(_, v)| *v);
+        let scale = 0.5f32;
 
         let vertices: Vec<_> = x
             .iter()
             .map(|(plane, _)| Vertex {
-                position: (plane.x as f32, plane.y as f32, plane.z as f32),
+                position: (
+                    plane.x as f32 * scale,
+                    plane.y as f32 * scale,
+                    plane.z as f32 * scale,
+                ),
             })
             .collect();
         let normals: Vec<_> = planes
@@ -123,7 +128,7 @@ impl RenderDelegate for CrystalRenderDelgate {
                 [plane[0], plane[1], plane[2], plane[0], plane[2], plane[3]]
                     //[plane[0], plane[1], plane[2]]
                     .iter()
-                    .map(|y| *y as u16)
+                    .map(|y| *y as u32)
                     .collect::<Vec<_>>()
             })
             .collect();
@@ -202,36 +207,39 @@ impl RenderDelegate for CrystalRenderDelgate {
         )
     }
 
-    fn update(&mut self, render_test: &RenderTest) -> Box<GpuFuture> {
+    fn update(&mut self, render_test: &RenderTest, input_state: &InputState) -> Box<GpuFuture> {
         let now = Instant::now();
         let d_time = now - self.last_time;
         self.last_time = now;
 
         println!("time: {:?}", d_time);
-        let mut rng = rand::thread_rng();
-        for plane in self.colors_cpu.chunks_mut(4) {
-            // let color = (
-            //     rand::random::<f32>(),
-            //     rand::random::<f32>(),
-            //     rand::random::<f32>(),
-            // );
-            let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0); //random::<f32>(), 1.0, 1.0);
 
-            plane[0].color = color;
-            plane[1].color = color;
-            plane[2].color = color;
-            plane[3].color = color;
-        }
+        if input_state.action1 || !self.colors_buffer_gpu.is_some() {
+            let mut rng = rand::thread_rng();
+            for plane in self.colors_cpu.chunks_mut(4) {
+                // let color = (
+                //     rand::random::<f32>(),
+                //     rand::random::<f32>(),
+                //     rand::random::<f32>(),
+                // );
+                let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 0.5, 1.0); //random::<f32>(), 1.0, 1.0);
 
-        match self.colors_buffer_pool {
-            Some(ref colors_buffer_pool) => {
-                let chunk = colors_buffer_pool
-                    .chunk(self.colors_cpu.iter().map(|x| *x))
-                    .unwrap();
-                self.colors_buffer_gpu = Some(Arc::new(chunk));
+                plane[0].color = color;
+                plane[1].color = color;
+                plane[2].color = color;
+                plane[3].color = color;
             }
-            _ => panic!("panic"),
-        };
+
+            match self.colors_buffer_pool {
+                Some(ref colors_buffer_pool) => {
+                    let chunk = colors_buffer_pool
+                        .chunk(self.colors_cpu.iter().map(|x| *x))
+                        .unwrap();
+                    self.colors_buffer_gpu = Some(Arc::new(chunk));
+                }
+                _ => panic!("panic"),
+            };
+        }
         Box::new(vulkano::sync::now(render_test.device.clone()))
     }
 

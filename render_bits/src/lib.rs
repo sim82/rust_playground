@@ -79,6 +79,7 @@ pub struct InputState {
     pub backward: bool,
     pub left: bool,
     pub right: bool,
+    pub action1: bool,
     pub d_lon: Deg<f32>,
     pub d_lat: Deg<f32>,
 }
@@ -90,6 +91,7 @@ impl InputState {
             backward: false,
             left: false,
             right: false,
+            action1: false,
             d_lon: Deg(0f32),
             d_lat: Deg(0f32),
         }
@@ -344,7 +346,7 @@ pub trait RenderDelegate {
         render_test: &RenderTest,
     ) -> Arc<GraphicsPipelineAbstract + Send + Sync>;
 
-    fn update(&mut self, render_test: &RenderTest) -> Box<GpuFuture>;
+    fn update(&mut self, render_test: &RenderTest, input_state: &InputState) -> Box<GpuFuture>;
 
     fn frame(
         &mut self,
@@ -389,7 +391,7 @@ pub fn render_test(delegate: Arc<RefCell<RenderDelegate>>) {
                 Err(err) => panic!("{:?}", err),
             };
 
-        let update_fut = delegate.borrow_mut().update(&render_test);
+        let update_fut = delegate.borrow_mut().update(&render_test, &input_state);
         let command_buffer = delegate.borrow_mut().frame(
             &render_test,
             &input_state,
@@ -465,6 +467,7 @@ pub fn render_test(delegate: Arc<RefCell<RenderDelegate>>) {
                     winit::VirtualKeyCode::S => input_state.backward = down,
                     winit::VirtualKeyCode::A => input_state.left = down,
                     winit::VirtualKeyCode::D => input_state.right = down,
+                    winit::VirtualKeyCode::Q => input_state.action1 = down,
                     _ => {}
                 }
             }

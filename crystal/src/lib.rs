@@ -105,6 +105,22 @@ impl MapSlice {
         let MapSlice(v) = self;
         v[p.y as usize][p.x as usize]
     }
+
+    fn pumped(&self) -> MapSlice {
+        let MapSlice(v) = self;
+
+        let mut out = Vec::new();
+        for line in v {
+            let mut new_line = Vec::new();
+            for c in line {
+                new_line.push(*c);
+                new_line.push(*c);
+            }
+            out.push(new_line.clone());
+            out.push(new_line);
+        }
+        MapSlice(out)
+    }
 }
 
 pub type Vec2i = cgmath::Vector2<i32>;
@@ -461,15 +477,21 @@ pub fn read_map<P: AsRef<Path>>(filename: P) -> std::io::Result<BlockMap> {
 
     let slice = read_map_slice(&mut reader, Vec2i::new(width, height))?;
     slice.print();
+
+    let slice = slice.pumped(); //.pumped();
     let max = slice.max();
     // println!( "max: {}", slice.max());
     // let mut bitmap = Bitmap::new(width, height,
     // for i in 0..height {
 
     // }
-    let mut bm = BlockMap::default((width as usize, *max as usize, height as usize)); //Bitmap::new(width, *max, height);
+
+    let real_size = slice.size();
+
+    println!("real size: {:?}", real_size);
+    let mut bm = BlockMap::default((real_size.x as usize, *max as usize, real_size.y as usize)); //Bitmap::new(width, *max, height);
     bm.add(&slice);
-    bm.print();
+    // bm.print();
 
     Ok(bm)
 }
