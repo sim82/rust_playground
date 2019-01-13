@@ -9,7 +9,7 @@ use render_bits::PlayerFlyModel;
 use render_bits::RenderDelegate;
 use render_bits::RenderTest;
 
-use crystal::Planes;
+use crystal::PlanesSep;
 use std::cell::RefCell;
 use std::iter;
 use std::sync::Arc;
@@ -98,7 +98,7 @@ impl CrystalRenderDelgate {
 impl RenderDelegate for CrystalRenderDelgate {
     fn init(&mut self, render_test: &RenderTest) -> Box<vulkano::sync::GpuFuture> {
         let bm = crystal::read_map("hidden_ramp.txt").expect("could not read file");
-        let mut planes = crystal::PlanesSep::new();
+        let mut planes = PlanesSep::new();
         planes.create_planes(&bm);
         // planes.print();
 

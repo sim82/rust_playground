@@ -250,101 +250,19 @@ impl Cell for Point3i {
     }
 }
 
-pub struct PlanesMerged {
-    vertices: HashMap<Point3i, i32>,
-    num_vertices: i32,
-    planes: Vec<[i32; NUM_PLANE_CORNERS]>,
-    dirs: Vec<Dir>,
+pub struct Plane {
+    vertices: [i32; NUM_PLANE_CORNERS],
+    dir: Dir,
+    cell: Point3i,
 }
 
-pub trait Planes {
-    fn create_planes(&mut self, bitmap: &BlockMap);
-    fn print(&self);
-    fn vertex_iter(&self) -> Box<Iterator<Item = (&Point3i, i32)> + '_>;
-    fn dir_iter(&self) -> Box<Iterator<Item = &Dir> + '_>;
-    fn planes_iter(&self) -> Box<Iterator<Item = &[i32; NUM_PLANE_CORNERS]> + '_>;
-}
-
-impl PlanesMerged {
-    pub fn new() -> PlanesMerged {
-        PlanesMerged {
-            vertices: HashMap::new(),
-            num_vertices: 0,
-            planes: Vec::new(),
-            dirs: Vec::new(),
+impl Plane {
+    fn new(vertices: [i32; NUM_PLANE_CORNERS], dir: Dir, cell: Point3i) -> Plane {
+        Plane {
+            vertices: vertices,
+            dir: dir,
+            cell: cell,
         }
-    }
-}
-
-impl Planes for PlanesMerged {
-    fn create_planes(&mut self, bitmap: &BlockMap) {
-        for ((x, y, z), v) in bitmap.indexed_iter() {
-            // println!("{} {} {}", x, y, z);
-            if !v {
-                continue;
-            }
-            let this_point = Point3i::new(x as i32, y as i32, z as i32);
-            for dir in [
-                Dir::ZxNeg,
-                Dir::ZxPos,
-                Dir::XyNeg,
-                Dir::XyPos,
-                Dir::YzNeg,
-                Dir::YzPos,
-            ]
-            .iter()
-            {
-                let has_neighbor = match bitmap.step(this_point, dir) {
-                    Some(p) => Bitmap::get(bitmap, p),
-                    None => false,
-                };
-
-                if !has_neighbor {
-                    let local_corners: [Vec3i; NUM_PLANE_CORNERS] = dir.get_corners();
-                    assert!(local_corners.len() == 4);
-                    let corners = local_corners.iter().map(|x| this_point + x);
-                    let mut points = [0; NUM_PLANE_CORNERS];
-
-                    for (i, c) in corners.enumerate() {
-                        match self.vertices.entry(c) {
-                            hash_map::Entry::Occupied(entry) => points[i] = *entry.get(),
-                            hash_map::Entry::Vacant(entry) => {
-                                entry.insert(self.num_vertices);
-                                points[i] = self.num_vertices;
-                                self.num_vertices += 1;
-                                self.dirs.push(*dir);
-                            }
-                        }
-                    }
-                    self.planes.push(points);
-                }
-            }
-        }
-    }
-
-    fn print(&self) {
-        let mut x: Vec<(&Point3i, &i32)> = self.vertices.iter().collect();
-        x.sort_by_key(|(_, v)| *v);
-
-        for (k, v) in x.iter() {
-            println!("{}: {}", v, DisplayWrap::from(**k));
-        }
-
-        for p in &self.planes {
-            println!("{}", DisplayWrap::from(*p));
-        }
-    }
-
-    fn vertex_iter(&self) -> Box<Iterator<Item = (&Point3i, i32)> + '_> {
-        Box::new(self.vertices.iter().map(|(p, i)| (p, *i)))
-    }
-
-    fn dir_iter(&self) -> Box<Iterator<Item = &Dir> + '_> {
-        Box::new(self.dirs.iter())
-    }
-
-    fn planes_iter(&self) -> Box<Iterator<Item = &[i32; NUM_PLANE_CORNERS]> + '_> {
-        Box::new(self.planes.iter())
     }
 }
 
@@ -352,6 +270,7 @@ pub struct PlanesSep {
     vertices: Vec<Point3i>,
     planes: Vec<[i32; NUM_PLANE_CORNERS]>,
     dirs: Vec<Dir>,
+    planes2: Vec<Plane>,
 }
 
 impl PlanesSep {
@@ -360,12 +279,13 @@ impl PlanesSep {
             vertices: Vec::new(),
             planes: Vec::new(),
             dirs: Vec::new(),
+            planes2: Vec::new(),
         }
     }
 }
 
-impl Planes for PlanesSep {
-    fn create_planes(&mut self, bitmap: &BlockMap) {
+impl PlanesSep {
+    pub fn create_planes(&mut self, bitmap: &BlockMap) {
         for ((x, y, z), v) in bitmap.indexed_iter() {
             // println!("{} {} {}", x, y, z);
             if !v {
@@ -399,12 +319,13 @@ impl Planes for PlanesSep {
                         self.dirs.push(*dir);
                     }
                     self.planes.push(points);
+                    self.planes2.push(Plane::new(points, *dir, this_point));
                 }
             }
         }
     }
 
-    fn print(&self) {
+    pub fn print(&self) {
         let mut x: Vec<(&Point3i, i32)> = self
             .vertices
             .iter()
@@ -422,16 +343,20 @@ impl Planes for PlanesSep {
         }
     }
 
-    fn vertex_iter(&self) -> Box<Iterator<Item = (&Point3i, i32)> + '_> {
-        Box::new(self.vertices.iter().enumerate().map(|(i, p)| (p, i as i32)))
+    pub fn vertex_iter(&self) -> impl Iterator<Item = (&Point3i, i32)> + '_ {
+        self.vertices.iter().enumerate().map(|(i, p)| (p, i as i32))
     }
 
-    fn dir_iter(&self) -> Box<Iterator<Item = &Dir> + '_> {
-        Box::new(self.dirs.iter())
+    pub fn dir_iter(&self) -> impl Iterator<Item = &Dir> + '_ {
+        self.dirs.iter()
     }
 
-    fn planes_iter(&self) -> Box<Iterator<Item = &[i32; NUM_PLANE_CORNERS]> + '_> {
-        Box::new(self.planes.iter())
+    pub fn planes_iter(&self) -> impl Iterator<Item = &[i32; NUM_PLANE_CORNERS]> + '_ {
+        self.planes.iter()
+    }
+
+    pub fn planes2_iter(&self) -> impl Iterator<Item = &Plane> + '_ {
+        self.planes2.iter()
     }
 }
 
