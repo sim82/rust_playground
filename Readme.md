@@ -1,3 +1,10 @@
+[![Build Status][s1]][tc] [![MIT/Apache][s3]][li] 
+
+[s1]: https://api.travis-ci.com/sim82/rust_playground.svg?branch=master
+[s3]: https://img.shields.io/badge/license-MIT%2FApache-blue.svg
+[tc]: https://travis-ci.org/sim82/rust_playground/
+[li]: COPYING
+
 start with:
 ```
  cargo run --bin crystal_planes

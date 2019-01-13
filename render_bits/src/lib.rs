@@ -354,7 +354,6 @@ pub trait RenderDelegate {
     fn frame(
         &mut self,
         render_test: &RenderTest,
-        input_state: &InputState,
         framebuffer: Arc<vulkano::framebuffer::FramebufferAbstract + Send + Sync>,
         pipeline: Arc<GraphicsPipelineAbstract + Send + Sync>,
     ) -> Box<
@@ -397,7 +396,6 @@ pub fn render_test(delegate: Arc<RefCell<RenderDelegate>>) {
         let update_fut = delegate.borrow_mut().update(&render_test, &input_state);
         let command_buffer = delegate.borrow_mut().frame(
             &render_test,
-            &input_state,
             framebuffers[image_num].clone(),
             pipeline.clone(),
         );
@@ -471,6 +469,7 @@ pub fn render_test(delegate: Arc<RefCell<RenderDelegate>>) {
                     winit::VirtualKeyCode::A => input_state.left = down,
                     winit::VirtualKeyCode::D => input_state.right = down,
                     winit::VirtualKeyCode::Q => input_state.action1 = down,
+                    winit::VirtualKeyCode::F3 => done = true,
                     _ => {}
                 }
             }

@@ -235,13 +235,33 @@ impl RenderDelegate for CrystalRenderDelgate {
                 _ => panic!("panic"),
             };
         }
+
+        self.player_model.apply_delta_lon(input_state.d_lon);
+        self.player_model.apply_delta_lat(input_state.d_lat);
+
+        const FORWARD_VEL: f32 = 1.0 / 60.0 * 2.0;
+        if input_state.forward {
+            self.player_model.apply_move_forward(FORWARD_VEL);
+        }
+        if input_state.backward {
+            self.player_model.apply_move_forward(-FORWARD_VEL);
+        }
+        if input_state.left {
+            self.player_model.apply_move_right(-FORWARD_VEL);
+        }
+        if input_state.right {
+            self.player_model.apply_move_right(FORWARD_VEL);
+        }
+
+        println!("{:?}", self.player_model);
+
         Box::new(vulkano::sync::now(render_test.device.clone()))
     }
 
     fn frame(
         &mut self,
         render_test: &RenderTest,
-        input_state: &InputState,
+        // input_state: &InputState,
         framebuffer: Arc<FramebufferAbstract + Send + Sync>,
         pipeline: Arc<GraphicsPipelineAbstract + Send + Sync>,
     ) -> Box<
@@ -276,25 +296,6 @@ impl RenderDelegate for CrystalRenderDelgate {
                         0.01,
                         100.0,
                     ) * Matrix4::from_nonuniform_scale(1f32, 1f32, -1f32);
-
-                    self.player_model.apply_delta_lon(input_state.d_lon);
-                    self.player_model.apply_delta_lat(input_state.d_lat);
-
-                    const FORWARD_VEL: f32 = 1.0 / 60.0 * 2.0;
-                    if input_state.forward {
-                        self.player_model.apply_move_forward(FORWARD_VEL);
-                    }
-                    if input_state.backward {
-                        self.player_model.apply_move_forward(-FORWARD_VEL);
-                    }
-                    if input_state.left {
-                        self.player_model.apply_move_right(-FORWARD_VEL);
-                    }
-                    if input_state.right {
-                        self.player_model.apply_move_right(FORWARD_VEL);
-                    }
-
-                    println!("{:?}", self.player_model);
 
                     let uniform_data = vs::ty::Data {
                         world: <Matrix4<f32> as Transform<Point3<f32>>>::one().into(), // from(rotation).into(),
