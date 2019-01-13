@@ -217,11 +217,6 @@ impl RenderDelegate for CrystalRenderDelgate {
         if input_state.action1 || !self.colors_buffer_gpu.is_some() {
             let mut rng = rand::thread_rng();
             for plane in self.colors_cpu.chunks_mut(4) {
-                // let color = (
-                //     rand::random::<f32>(),
-                //     rand::random::<f32>(),
-                //     rand::random::<f32>(),
-                // );
                 let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 0.5, 1.0); //random::<f32>(), 1.0, 1.0);
 
                 plane[0].color = color;
