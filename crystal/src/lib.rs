@@ -484,7 +484,7 @@ pub fn read_map<P: AsRef<Path>>(filename: P) -> std::io::Result<BlockMap> {
     let slice = read_map_slice(&mut reader, Vec2i::new(width, height))?;
     slice.print();
 
-    let slice = slice.pumped(); //.pumped();
+    let slice = slice.pumped().pumped();
     let max = slice.max();
     let real_size = slice.size();
 

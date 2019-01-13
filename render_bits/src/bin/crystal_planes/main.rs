@@ -104,7 +104,7 @@ impl RenderDelegate for CrystalRenderDelgate {
 
         let mut x: Vec<(&crystal::Point3i, i32)> = planes.vertex_iter().collect();
         x.sort_by_key(|(_, v)| *v);
-        let scale = 0.5f32;
+        let scale = 0.25f32;
 
         let vertices: Vec<_> = x
             .iter()
