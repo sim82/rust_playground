@@ -19,6 +19,7 @@ pub type Vec3 = cgmath::Vector3<f32>;
 
 pub type Point2i = cgmath::Point2<i32>;
 pub type Point3i = cgmath::Point3<i32>;
+pub type Point3 = cgmath::Point3<f32>;
 
 const NUM_PLANE_CORNERS: usize = 4;
 
@@ -40,6 +41,16 @@ impl Bitmap for BlockMap {
     }
 
     fn get(&self, p: Point3i) -> bool {
+        let (x, y, z) = self.dim();
+        if p.x < 0
+            || p.y < 0
+            || p.z < 0
+            || p.x as usize >= x
+            || p.y as usize >= y
+            || p.z as usize >= z
+        {
+            return false;
+        }
         // self.bitmap[self.coord(&p)]
         self[[p.x as usize, p.y as usize, p.z as usize]]
     }
@@ -251,9 +262,9 @@ impl Cell for Point3i {
 }
 
 pub struct Plane {
-    vertices: [i32; NUM_PLANE_CORNERS],
-    dir: Dir,
-    cell: Point3i,
+    pub vertices: [i32; NUM_PLANE_CORNERS],
+    pub dir: Dir,
+    pub cell: Point3i,
 }
 
 impl Plane {
@@ -268,9 +279,7 @@ impl Plane {
 
 pub struct PlanesSep {
     vertices: Vec<Point3i>,
-    planes: Vec<[i32; NUM_PLANE_CORNERS]>,
-    dirs: Vec<Dir>,
-    planes2: Vec<Plane>,
+    planes: Vec<Plane>,
 }
 
 impl PlanesSep {
@@ -278,8 +287,6 @@ impl PlanesSep {
         Self {
             vertices: Vec::new(),
             planes: Vec::new(),
-            dirs: Vec::new(),
-            planes2: Vec::new(),
         }
     }
 }
@@ -316,10 +323,8 @@ impl PlanesSep {
                     for (i, c) in corners.enumerate() {
                         points[i] = self.vertices.len() as i32;
                         self.vertices.push(c);
-                        self.dirs.push(*dir);
                     }
-                    self.planes.push(points);
-                    self.planes2.push(Plane::new(points, *dir, this_point));
+                    self.planes.push(Plane::new(points, *dir, this_point));
                 }
             }
         }
@@ -339,7 +344,7 @@ impl PlanesSep {
         }
 
         for p in &self.planes {
-            println!("{}", DisplayWrap::from(*p));
+            println!("{}", DisplayWrap::from(p.vertices));
         }
     }
 
@@ -347,16 +352,11 @@ impl PlanesSep {
         self.vertices.iter().enumerate().map(|(i, p)| (p, i as i32))
     }
 
-    pub fn dir_iter(&self) -> impl Iterator<Item = &Dir> + '_ {
-        self.dirs.iter()
-    }
-
-    pub fn planes_iter(&self) -> impl Iterator<Item = &[i32; NUM_PLANE_CORNERS]> + '_ {
+    pub fn planes_iter(&self) -> impl Iterator<Item = &Plane> + '_ {
         self.planes.iter()
     }
-
-    pub fn planes2_iter(&self) -> impl Iterator<Item = &Plane> + '_ {
-        self.planes2.iter()
+    pub fn num_planes(&self) -> usize {
+        self.planes.len()
     }
 }
 

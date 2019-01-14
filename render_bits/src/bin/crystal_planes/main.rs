@@ -9,6 +9,7 @@ use render_bits::PlayerFlyModel;
 use render_bits::RenderDelegate;
 use render_bits::RenderTest;
 
+use crystal::rad::Scene;
 use crystal::PlanesSep;
 use std::cell::RefCell;
 use std::iter;
@@ -55,6 +56,7 @@ struct CrystalRenderDelgate {
     colors_cpu: Vec<Color>,
 
     last_time: std::time::Instant,
+    scene: Option<Scene>,
 }
 
 fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (f32, f32, f32) {
@@ -91,16 +93,22 @@ impl CrystalRenderDelgate {
             uniform_buffer: None,
             colors_cpu: Vec::new(),
             last_time: Instant::now(),
+            scene: None,
         }))
     }
 }
 
 impl RenderDelegate for CrystalRenderDelgate {
     fn init(&mut self, render_test: &RenderTest) -> Box<vulkano::sync::GpuFuture> {
-        let bm = crystal::read_map("hidden_ramp.txt").expect("could not read file");
-        let mut planes = PlanesSep::new();
-        planes.create_planes(&bm);
-        // planes.print();
+        {
+            let bm = crystal::read_map("hidden_ramp.txt").expect("could not read file");
+            let mut planes = PlanesSep::new();
+            planes.create_planes(&bm);
+            // planes.print();
+            self.scene = Some(Scene::new(planes, Box::new(bm)));
+        }
+
+        let planes = &self.scene.as_ref().unwrap().planes;
 
         let mut x: Vec<(&crystal::Point3i, i32)> = planes.vertex_iter().collect();
         x.sort_by_key(|(_, v)| *v);
@@ -117,19 +125,29 @@ impl RenderDelegate for CrystalRenderDelgate {
             })
             .collect();
         let normals: Vec<_> = planes
-            .dir_iter()
-            .map(|dir| Normal::from(dir.get_normal::<f32>()))
+            .planes_iter()
+            .flat_map(|plane| {
+                let normal = Normal::from(plane.dir.get_normal::<f32>());
+                vec![normal, normal, normal, normal]
+                // .iter()
+                // .map(|y| *y)
+                // .collect::<Vec<_>>()
+            })
             .collect();
         assert!(vertices.len() == normals.len());
 
         let indices: Vec<_> = planes
             .planes_iter()
             .flat_map(|plane| {
-                [plane[0], plane[1], plane[2], plane[0], plane[2], plane[3]]
-                    //[plane[0], plane[1], plane[2]]
-                    .iter()
-                    .map(|y| *y as u32)
-                    .collect::<Vec<_>>()
+                vec![
+                    plane.vertices[0] as u32,
+                    plane.vertices[1] as u32,
+                    plane.vertices[2] as u32,
+                    plane.vertices[0] as u32,
+                    plane.vertices[2] as u32,
+                    plane.vertices[3] as u32,
+                ]
+                //[plane[0], plane[1], plane[2]]
             })
             .collect();
         let (vertex_buffer, vb_future) = ImmutableBuffer::from_iter(
@@ -216,8 +234,16 @@ impl RenderDelegate for CrystalRenderDelgate {
 
         if input_state.action1 || !self.colors_buffer_gpu.is_some() {
             let mut rng = rand::thread_rng();
-            for plane in self.colors_cpu.chunks_mut(4) {
-                let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 0.5, 1.0); //random::<f32>(), 1.0, 1.0);
+
+            let scene = &mut self.scene.as_mut().unwrap();
+            scene.apply_light(
+                Point3::new(120f32, 32f32, 80f32),
+                crystal::Vec3::new(1f32, 1f32, 1f32),
+            );
+            for (i, plane) in self.colors_cpu.chunks_mut(4).enumerate() {
+                // let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 0.5, 1.0); //random::<f32>(), 1.0, 1.0);
+
+                let color = (scene.emit[i].x, scene.emit[i].y, scene.emit[i].z);
 
                 plane[0].color = color;
                 plane[1].color = color;

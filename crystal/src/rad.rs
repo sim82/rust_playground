@@ -1,7 +1,12 @@
-use super::{Bitmap, Point3i};
+use super::DisplayWrap;
+use super::{Bitmap, BlockMap, Point3, Point3i, Vec3, Vec3i};
+use super::{Plane, PlanesSep};
+use cgmath::prelude::*;
 
 fn occluded(p0: Point3i, p1: Point3i, solid: &Bitmap) -> bool {
     // 3d bresenham, ripped from http://www.cobrabytes.com/index.php?topic=1150.0
+
+    println!("{} {}", DisplayWrap::from(p0), DisplayWrap::from(p1));
 
     let mut x0 = p0.x;
     let mut y0 = p0.y;
@@ -64,6 +69,7 @@ fn occluded(p0: Point3i, p1: Point3i, solid: &Bitmap) -> bool {
         // passes through this point
         // debugmsg(":" + cx + ", " + cy + ", " + cz)
         if solid.get(Point3i::new(cx, cy, cz)) {
+            println!("stop {}", DisplayWrap::from(Point3i::new(cx, cy, cz)));
             return true;
         }
         // update progress in other planes
@@ -87,4 +93,39 @@ fn occluded(p0: Point3i, p1: Point3i, solid: &Bitmap) -> bool {
 
     // return false;
     false
+}
+
+pub struct Scene {
+    pub planes: PlanesSep,
+    bitmap: Box<Bitmap>,
+    pub emit: Vec<Vec3>,
+}
+
+impl Scene {
+    pub fn new(planes: PlanesSep, bitmap: Box<BlockMap>) -> Self {
+        Scene {
+            emit: vec![Vec3::new(0.2f32, 0.2f32, 0.2f32); planes.num_planes()],
+            planes: planes,
+            bitmap: bitmap,
+        }
+    }
+
+    pub fn apply_light(&mut self, pos: Point3, color: Vec3) {
+        let ligth_pos = Point3i::new(pos.x as i32, pos.y as i32, pos.z as i32);
+        for (i, plane) in self.planes.planes_iter().enumerate() {
+            // let trace_pos = Vec3::new(
+            //     plane.cell.x as f32,
+            //     plane.cell.x as f32,
+            //     plane.cell.x as f32,
+            // ) + Vec3::new(0.5, 0.5, 0.5)
+            //     + plane.dir.get_normal() * 0.5;
+
+            let trace_pos = plane.cell + plane.dir.get_normal();
+
+            if !occluded(ligth_pos, trace_pos, &*self.bitmap) {
+                println!("light");
+                self.emit[i] = color;
+            }
+        }
+    }
 }
