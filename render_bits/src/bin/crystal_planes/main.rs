@@ -29,7 +29,7 @@ use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
 use vulkano::sync::GpuFuture;
 
 use cgmath::prelude::*;
-use cgmath::{Matrix4, Point3, Rad};
+use cgmath::{Matrix4, Point3, Rad, Vector3};
 
 use rand::prelude::*;
 use render_bits::{Normal, Vertex};
@@ -57,6 +57,8 @@ struct CrystalRenderDelgate {
 
     last_time: std::time::Instant,
     scene: Option<Scene>,
+
+    light_pos: Point3<f32>,
 }
 
 fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (f32, f32, f32) {
@@ -94,6 +96,7 @@ impl CrystalRenderDelgate {
             colors_cpu: Vec::new(),
             last_time: Instant::now(),
             scene: None,
+            light_pos: Point3::new(120.0, 32.0, 80.0),
         }))
     }
 }
@@ -232,35 +235,46 @@ impl RenderDelegate for CrystalRenderDelgate {
 
         println!("time: {:?}", d_time);
 
-        if input_state.action1 || !self.colors_buffer_gpu.is_some() {
-            let mut rng = rand::thread_rng();
+        // if input_state.action1 || !self.colors_buffer_gpu.is_some() {
+        let mut rng = rand::thread_rng();
 
-            let scene = &mut self.scene.as_mut().unwrap();
-            scene.apply_light(
-                Point3::new(120f32, 32f32, 80f32),
-                crystal::Vec3::new(1f32, 1f32, 1f32),
-            );
-            for (i, plane) in self.colors_cpu.chunks_mut(4).enumerate() {
-                // let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 0.5, 1.0); //random::<f32>(), 1.0, 1.0);
+        let scene = &mut self.scene.as_mut().unwrap();
 
-                let color = (scene.emit[i].x, scene.emit[i].y, scene.emit[i].z);
-
-                plane[0].color = color;
-                plane[1].color = color;
-                plane[2].color = color;
-                plane[3].color = color;
-            }
-
-            match self.colors_buffer_pool {
-                Some(ref colors_buffer_pool) => {
-                    let chunk = colors_buffer_pool
-                        .chunk(self.colors_cpu.iter().map(|x| *x))
-                        .unwrap();
-                    self.colors_buffer_gpu = Some(Arc::new(chunk));
-                }
-                _ => panic!("panic"),
-            };
+        if input_state.z_neg {
+            self.light_pos -= Vector3::<f32>::unit_z();
         }
+        if input_state.z_pos {
+            self.light_pos += Vector3::<f32>::unit_z();
+        }
+        if input_state.x_neg {
+            self.light_pos -= Vector3::<f32>::unit_x();
+        }
+        if input_state.x_pos {
+            self.light_pos += Vector3::<f32>::unit_x();
+        }
+        // println!("light pos: {:?}", self.light_pos);
+        scene.apply_light(self.light_pos, crystal::Vec3::new(1f32, 1f32, 1f32));
+        for (i, plane) in self.colors_cpu.chunks_mut(4).enumerate() {
+            // let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 0.5, 1.0); //random::<f32>(), 1.0, 1.0);
+
+            let color = (scene.emit[i].x, scene.emit[i].y, scene.emit[i].z);
+
+            plane[0].color = color;
+            plane[1].color = color;
+            plane[2].color = color;
+            plane[3].color = color;
+        }
+
+        match self.colors_buffer_pool {
+            Some(ref colors_buffer_pool) => {
+                let chunk = colors_buffer_pool
+                    .chunk(self.colors_cpu.iter().map(|x| *x))
+                    .unwrap();
+                self.colors_buffer_gpu = Some(Arc::new(chunk));
+            }
+            _ => panic!("panic"),
+        };
+        // }
 
         self.player_model.apply_delta_lon(input_state.d_lon);
         self.player_model.apply_delta_lat(input_state.d_lat);

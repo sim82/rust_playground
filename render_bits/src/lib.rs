@@ -86,6 +86,11 @@ pub struct InputState {
     pub run: bool,
     pub d_lon: Deg<f32>,
     pub d_lat: Deg<f32>,
+
+    pub z_neg: bool,
+    pub z_pos: bool,
+    pub x_neg: bool,
+    pub x_pos: bool,
 }
 
 impl InputState {
@@ -99,6 +104,10 @@ impl InputState {
             run: false,
             d_lon: Deg(0f32),
             d_lat: Deg(0f32),
+            z_neg: false,
+            z_pos: false,
+            x_neg: false,
+            x_pos: false,
         }
     }
 }
@@ -470,6 +479,10 @@ pub fn render_test(delegate: Arc<RefCell<RenderDelegate>>) {
                     winit::VirtualKeyCode::S => input_state.backward = down,
                     winit::VirtualKeyCode::A => input_state.left = down,
                     winit::VirtualKeyCode::D => input_state.right = down,
+                    winit::VirtualKeyCode::I => input_state.z_neg = down,
+                    winit::VirtualKeyCode::K => input_state.z_pos = down,
+                    winit::VirtualKeyCode::J => input_state.x_neg = down,
+                    winit::VirtualKeyCode::L => input_state.x_pos = down,
                     winit::VirtualKeyCode::Q => input_state.action1 = down,
                     winit::VirtualKeyCode::LShift | winit::VirtualKeyCode::RShift => {
                         input_state.run = down
