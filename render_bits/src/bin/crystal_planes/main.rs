@@ -253,11 +253,21 @@ impl RenderDelegate for CrystalRenderDelgate {
             self.light_pos += Vector3::<f32>::unit_x();
         }
         // println!("light pos: {:?}", self.light_pos);
-        scene.apply_light(self.light_pos, crystal::Vec3::new(1f32, 1f32, 1f32));
+
+        if input_state.action1 {
+            scene.clear_emit();
+        } else {
+            scene.apply_light(self.light_pos, crystal::Vec3::new(1f32, 1f32, 1f32));
+        }
+        scene.do_rad();
         for (i, plane) in self.colors_cpu.chunks_mut(4).enumerate() {
             // let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 0.5, 1.0); //random::<f32>(), 1.0, 1.0);
 
-            let color = (scene.emit[i].x, scene.emit[i].y, scene.emit[i].z);
+            let color = (
+                scene.rad_front[i].x,
+                scene.rad_front[i].y,
+                scene.rad_front[i].z,
+            );
 
             plane[0].color = color;
             plane[1].color = color;
