@@ -169,7 +169,6 @@ fn setup_formfactors_single(planes: &PlanesSep, bitmap: &BlockMap) -> Vec<(u32, 
 fn setup_formfactors(planes: &PlanesSep, bitmap: &BlockMap) -> Vec<(u32, u32, f32)> {
     let filename = "ffs.bin";
 
-    ;
     let input_file = std::fs::File::open(filename);
     let mut ffs = match input_file {
         Ok(f) => {
@@ -264,7 +263,7 @@ impl Scene {
             // }
 
             self.emit[i] = Vec3::zero(); //new(0.2, 0.2, 0.2);
-            if !occluded(light_pos, trace_pos, &self.bitmap) {
+            if !occluded(light_pos, trace_pos, &self.bitmap) && dot > 0f32 {
                 // println!("light");
                 self.emit[i] += color * dot * (5f32 / (2f32 * 3.1415f32 * len * len));
             }
