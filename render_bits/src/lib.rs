@@ -113,11 +113,11 @@ impl InputState {
 }
 
 impl PlayerFlyModel {
-    pub fn new() -> Self {
+    pub fn new(pos: Point3<f32>, lon: Deg<f32>, lat: Deg<f32>) -> Self {
         PlayerFlyModel {
-            lon: Deg(0.0),
-            lat: Deg(0.0),
-            pos: Point3::origin(),
+            lon: lon,
+            lat: lat,
+            pos: pos,
         }
     }
 
@@ -367,9 +367,11 @@ pub trait RenderDelegate {
         render_test: &RenderTest,
         framebuffer: Arc<vulkano::framebuffer::FramebufferAbstract + Send + Sync>,
         pipeline: Arc<GraphicsPipelineAbstract + Send + Sync>,
-    ) -> Box<
-        vulkano::command_buffer::CommandBuffer<
-            PoolAlloc = vulkano::command_buffer::pool::standard::StandardCommandPoolAlloc,
+    ) -> Option<
+        Box<
+            vulkano::command_buffer::CommandBuffer<
+                PoolAlloc = vulkano::command_buffer::pool::standard::StandardCommandPoolAlloc,
+            >,
         >,
     >;
 }
@@ -413,31 +415,33 @@ pub fn render_test(delegate: Arc<RefCell<RenderDelegate>>) {
         input_state.d_lon = Deg(0f32);
         input_state.d_lat = Deg(0f32);
 
-        let future = previous_frame
-            .join(update_fut)
-            .join(acquire_future)
-            .then_execute(render_test.queue.clone(), command_buffer)
-            .unwrap()
-            .then_swapchain_present(
-                render_test.queue.clone(),
-                render_test.swapchain.clone(),
-                image_num,
-            )
-            .then_signal_fence_and_flush();
+        if let Some(command_buffer) = command_buffer {
+            let future = previous_frame
+                .join(update_fut)
+                .join(acquire_future)
+                .then_execute(render_test.queue.clone(), command_buffer)
+                .unwrap()
+                .then_swapchain_present(
+                    render_test.queue.clone(),
+                    render_test.swapchain.clone(),
+                    image_num,
+                )
+                .then_signal_fence_and_flush();
 
-        match future {
-            Ok(future) => {
-                previous_frame = Box::new(future) as Box<_>;
+            match future {
+                Ok(future) => {
+                    previous_frame = Box::new(future) as Box<_>;
+                }
+                Err(sync::FlushError::OutOfDate) => {
+                    recreate_swapchain = true;
+                    previous_frame = Box::new(sync::now(render_test.device.clone())) as Box<_>;
+                }
+                Err(e) => {
+                    println!("{:?}", e);
+                    previous_frame = Box::new(sync::now(render_test.device.clone())) as Box<_>;
+                }
             }
-            Err(sync::FlushError::OutOfDate) => {
-                recreate_swapchain = true;
-                previous_frame = Box::new(sync::now(render_test.device.clone())) as Box<_>;
-            }
-            Err(e) => {
-                println!("{:?}", e);
-                previous_frame = Box::new(sync::now(render_test.device.clone())) as Box<_>;
-            }
-        }
+        };
 
         let mut done = false;
         render_test.events_loop.poll_events(|ev| match ev {
