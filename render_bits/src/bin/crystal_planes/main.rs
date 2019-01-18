@@ -49,6 +49,7 @@ vulkano::impl_vertex!(Color, color);
 enum GameEvent {
     UpdateLightPos(Point3),
     DoAction1,
+    DoAction2,
 }
 
 struct RadWorker {
@@ -100,14 +101,14 @@ impl RadWorker {
                         GameEvent::UpdateLightPos(pos) => {
                             light_pos = pos;
                             light_update = true;
-                        }
-                        GameEvent::DoAction1 => {
+                            // }
+                            // GameEvent::DoAction1 => {
                             let mut rng = thread_rng();
 
-                            let color1 = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
-                            // let color1 = Vector3::new(1f32, 0.5f32, 0f32);
-                            let color2 = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
-                            // let color2 = Vector3::new(0f32, 1f32, 0f32);
+                            // let color1 = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
+                            let color1 = Vector3::new(1f32, 0.5f32, 0f32);
+                            // let color2 = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
+                            let color2 = Vector3::new(0f32, 1f32, 0f32);
                             for (i, plane) in scene.planes.planes_iter().enumerate() {
                                 if (plane.cell.y / 2) % 2 == 1 {
                                     continue;
@@ -124,6 +125,48 @@ impl RadWorker {
                                 }
                             }
                             light_update = true;
+                        }
+                        GameEvent::DoAction1 => {
+                            let mut rng = thread_rng();
+
+                            let color1 = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
+                            // let color1 = Vector3::new(1f32, 0.5f32, 0f32);
+                            let color2 = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
+
+                            for (i, plane) in scene.planes.planes_iter().enumerate() {
+                                scene.diffuse[i] = Vector3::new(1f32, 1f32, 1f32);
+
+                                scene.emit[i] = if rng.gen::<f32>() > 0.01 {
+                                    Vector3::zero()
+                                } else {
+                                    hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0)
+                                }
+                            }
+                        }
+                        GameEvent::DoAction2 => {
+                            let mut rng = thread_rng();
+
+                            let color1 = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
+                            // let color1 = Vector3::new(1f32, 0.5f32, 0f32);
+                            let color2 = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
+
+                            for (i, plane) in scene.planes.planes_iter().enumerate() {
+                                scene.diffuse[i] = Vector3::new(1f32, 1f32, 1f32);
+                                scene.emit[i] = if (plane.cell.y) % 3 != 0 {
+                                    Vector3::zero()
+                                } else {
+                                    match plane.dir {
+                                        crystal::Dir::YzPos => color1,
+                                        crystal::Dir::YzNeg => color2,
+                                        // crystal::Dir::XyPos | crystal::Dir::XyNeg => {
+                                        //     Vector3::new(0.8f32, 0.8f32, 0.8f32)
+                                        // }
+                                        _ => Vector3::zero(),
+                                        // let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0); //random::<f32>(), 1.0, 1.0);
+                                        // scene.diffuse[i] = Vector3::new(color.0, color.1, color.2);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -210,7 +253,7 @@ impl CrystalRenderDelgate {
             // colors_cpu: Vec::new(),
             last_time: Instant::now(),
             // scene: None,
-            light_pos: Point3::new(120.0, 32.0, 120.0),
+            light_pos: Point3::new(120.0, 48.0, 120.0),
 
             rad_worker: None,
             tx_pos: None,
@@ -386,6 +429,11 @@ impl RenderDelegate for CrystalRenderDelgate {
         if input_state.action1 {
             if let Some(tx_pos) = &self.tx_pos {
                 tx_pos.send(GameEvent::DoAction1);
+            }
+        }
+        if input_state.action2 {
+            if let Some(tx_pos) = &self.tx_pos {
+                tx_pos.send(GameEvent::DoAction2);
             }
         }
         if light_update {
