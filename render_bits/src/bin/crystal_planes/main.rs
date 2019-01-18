@@ -61,7 +61,26 @@ struct RadWorker {
 
     join_handle: JoinHandle<()>,
 }
-
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> Vec3 {
+    let mut hh = h;
+    if hh >= 360.0 {
+        hh = 0.0;
+    }
+    hh /= 60.0;
+    let i = hh as i32; //.into();
+    let ff = hh - i as f32;
+    let p = v * (1.0 - s);
+    let q = v * (1.0 - (s * ff));
+    let t = v * (1.0 - (s * (1.0 - ff)));
+    match i {
+        0 => Vec3::new(v, t, p),
+        1 => Vec3::new(q, v, p),
+        2 => Vec3::new(p, v, t),
+        3 => Vec3::new(p, q, v),
+        4 => Vec3::new(t, p, v),
+        _ => Vec3::new(v, p, q),
+    }
+}
 impl RadWorker {
     fn start(
         mut scene: Scene,
@@ -74,6 +93,7 @@ impl RadWorker {
         let join_handle = spawn(move || {
             let mut light_pos = crystal::Point3::new(120f32, 32f32, 80f32);
             let mut light_update = false;
+            let mut last_stat = Instant::now();
             loop {
                 while let Ok(event) = rx_event.try_recv() {
                     match event {
@@ -83,10 +103,24 @@ impl RadWorker {
                         }
                         GameEvent::DoAction1 => {
                             let mut rng = thread_rng();
+
+                            let color1 = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
+                            // let color1 = Vector3::new(1f32, 0.5f32, 0f32);
+                            let color2 = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
+                            // let color2 = Vector3::new(0f32, 1f32, 0f32);
                             for (i, plane) in scene.planes.planes_iter().enumerate() {
-                                if plane.dir == crystal::Dir::YzPos && (plane.cell.y / 4) % 2 == 0 {
-                                    let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0); //random::<f32>(), 1.0, 1.0);
-                                    scene.diffuse[i] = Vector3::new(color.0, color.1, color.2);
+                                if (plane.cell.y / 2) % 2 == 1 {
+                                    continue;
+                                }
+                                scene.diffuse[i] = match plane.dir {
+                                    crystal::Dir::YzPos => color1,
+                                    crystal::Dir::YzNeg => color2,
+                                    crystal::Dir::XyPos | crystal::Dir::XyNeg => {
+                                        Vector3::new(0.8f32, 0.8f32, 0.8f32)
+                                    }
+                                    _ => Vector3::new(1f32, 1f32, 1f32),
+                                    // let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0); //random::<f32>(), 1.0, 1.0);
+                                    // scene.diffuse[i] = Vector3::new(color.0, color.1, color.2);
                                 }
                             }
                             light_update = true;
@@ -119,6 +153,15 @@ impl RadWorker {
                     .unwrap();
 
                 tx.send(chunk);
+                let d_time = last_stat.elapsed();
+                if d_time >= Duration::from_secs(1) {
+                    let pintss = scene.pints as f64
+                        / (d_time.as_secs() as f64 + d_time.subsec_nanos() as f64 * 1e-9);
+                    scene.pints = 0;
+
+                    println!("pint/s: {:e}", pintss);
+                    last_stat = Instant::now();
+                }
             }
         });
         RadWorker {
@@ -147,27 +190,6 @@ struct CrystalRenderDelgate {
 
     rad_worker: Option<RadWorker>,
     tx_pos: Option<Sender<GameEvent>>,
-}
-
-fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (f32, f32, f32) {
-    let mut hh = h;
-    if hh >= 360.0 {
-        hh = 0.0;
-    }
-    hh /= 60.0;
-    let i = hh as i32; //.into();
-    let ff = hh - i as f32;
-    let p = v * (1.0 - s);
-    let q = v * (1.0 - (s * ff));
-    let t = v * (1.0 - (s * (1.0 - ff)));
-    match i {
-        0 => (v, t, p),
-        1 => (q, v, p),
-        2 => (p, v, t),
-        3 => (p, q, v),
-        4 => (t, p, v),
-        _ => (v, p, q),
-    }
 }
 
 impl CrystalRenderDelgate {
@@ -334,14 +356,14 @@ impl RenderDelegate for CrystalRenderDelgate {
     }
 
     fn update(&mut self, render_test: &RenderTest, input_state: &InputState) -> Box<GpuFuture> {
-        let now = Instant::now();
-        let d_time = now - self.last_time;
-        self.last_time = now;
+        // let now = Instant::now();
+        // let d_time = now - self.last_time;
+        self.last_time = Instant::now();
 
-        println!("time: {:?}", d_time);
+        // println!("time: {:?}", d_time);
 
         // if input_state.action1 || !self.colors_buffer_gpu.is_some() {
-        let mut rng = rand::thread_rng();
+        // let mut rng = rand::thread_rng();
 
         // let scene = &mut self.scene.as_mut().unwrap();
         let mut light_update = false;
@@ -430,7 +452,7 @@ impl RenderDelegate for CrystalRenderDelgate {
             self.player_model.apply_move_right(FORWARD_VEL * boost);
         }
 
-        println!("{:?}", self.player_model);
+        // println!("{:?}", self.player_model);
 
         Box::new(vulkano::sync::now(render_test.device.clone()))
     }

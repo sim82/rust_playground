@@ -217,6 +217,7 @@ pub struct Scene {
     pub rad_front: Vec<Vec3>,
     pub rad_back: Vec<Vec3>,
     pub diffuse: Vec<Vec3>,
+    pub pints: usize,
 }
 
 fn vec_mul(v1: &Vec3, v2: &Vec3) -> Vec3 {
@@ -233,6 +234,7 @@ impl Scene {
             diffuse: vec![Vec3::new(1f32, 1f32, 1f32); planes.num_planes()],
             planes: planes,
             bitmap: bitmap,
+            pints: 0,
         }
     }
 
@@ -297,6 +299,7 @@ impl Scene {
             // let emul = |l: Vec3, r: Vec3| Vec3::new(l.x * r.x, l.y * r.y, l.z * r.z);
 
             //rad += emul(col_diff, self.rad_back[*j as usize]) * *ff;
+
             rad += vec_mul(
                 &self.rad_back[*j as usize],
                 &(*ff * self.diffuse[*i as usize]),
@@ -306,5 +309,6 @@ impl Scene {
         if use_last {
             self.rad_front[last_i as usize] = self.emit[last_i as usize] + rad;
         }
+        self.pints += self.ff.len();
     }
 }
