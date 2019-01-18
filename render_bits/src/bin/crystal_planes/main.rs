@@ -11,6 +11,8 @@ use render_bits::RenderTest;
 
 use crystal::rad::Scene;
 use crystal::PlanesSep;
+use crystal::{Point3, Point3i, Vec3};
+
 use std::cell::RefCell;
 use std::iter;
 use std::sync::Arc;
@@ -29,7 +31,7 @@ use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
 use vulkano::sync::GpuFuture;
 
 use cgmath::prelude::*;
-use cgmath::{Matrix4, Point3, Rad, Vector3};
+use cgmath::{Matrix4, Rad, Vector3};
 
 use rand::prelude::*;
 use render_bits::{Normal, Vertex};
@@ -43,6 +45,11 @@ pub struct Color {
 }
 
 vulkano::impl_vertex!(Color, color);
+
+enum GameEvent {
+    UpdateLightPos(Point3),
+    DoAction1,
+}
 
 struct RadWorker {
     rx: Receiver<
@@ -60,16 +67,36 @@ impl RadWorker {
         mut scene: Scene,
         mut colors_buffer_pool: CpuBufferPool<Color>,
         mut colors_cpu: Vec<Color>,
-        rx_pos: Receiver<crystal::Point3>,
+        rx_event: Receiver<GameEvent>,
     ) -> RadWorker {
         let (tx, rx) = channel();
 
         let join_handle = spawn(move || {
-            // let mut light_pos = crystal::Point3::new(120f32, 32f32, 80f32);
+            let mut light_pos = crystal::Point3::new(120f32, 32f32, 80f32);
+            let mut light_update = false;
             loop {
-                while let Ok(pos) = rx_pos.try_recv() {
-                    // FIXME: this is crappy...
-                    scene.apply_light(pos, crystal::Vec3::new(1f32, 1f32, 1f32));
+                while let Ok(event) = rx_event.try_recv() {
+                    match event {
+                        GameEvent::UpdateLightPos(pos) => {
+                            light_pos = pos;
+                            light_update = true;
+                        }
+                        GameEvent::DoAction1 => {
+                            let mut rng = thread_rng();
+                            for (i, plane) in scene.planes.planes_iter().enumerate() {
+                                if plane.dir == crystal::Dir::YzPos && (plane.cell.y / 4) % 2 == 0 {
+                                    let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0); //random::<f32>(), 1.0, 1.0);
+                                    scene.diffuse[i] = Vector3::new(color.0, color.1, color.2);
+                                }
+                            }
+                            light_update = true;
+                        }
+                    }
+                }
+
+                if light_update {
+                    scene.apply_light(light_pos, Vec3::new(1f32, 1f32, 1f32));
+                    light_update = false;
                 }
                 scene.do_rad();
                 for (i, plane) in colors_cpu.chunks_mut(4).enumerate() {
@@ -116,10 +143,10 @@ struct CrystalRenderDelgate {
     // colors_cpu: Vec<Color>,
     last_time: std::time::Instant,
 
-    light_pos: Point3<f32>,
+    light_pos: Point3,
 
     rad_worker: Option<RadWorker>,
-    tx_pos: Option<Sender<crystal::Point3>>,
+    tx_pos: Option<Sender<GameEvent>>,
 }
 
 fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (f32, f32, f32) {
@@ -147,7 +174,7 @@ impl CrystalRenderDelgate {
     fn new() -> Arc<RefCell<CrystalRenderDelgate>> {
         Arc::new(RefCell::new(CrystalRenderDelgate {
             player_model: PlayerFlyModel::new(
-                crystal::Point3::new(31f32, 12f32, 4f32),
+                Point3::new(31f32, 12f32, 4f32),
                 cgmath::Deg(-65f32),
                 cgmath::Deg(35f32),
             ),
@@ -186,7 +213,7 @@ impl RenderDelegate for CrystalRenderDelgate {
         {
             let planes = &scene.planes;
 
-            let mut x: Vec<(&crystal::Point3i, i32)> = planes.vertex_iter().collect();
+            let mut x: Vec<(&Point3i, i32)> = planes.vertex_iter().collect();
             x.sort_by_key(|(_, v)| *v);
             let scale = 0.25f32;
 
@@ -266,7 +293,7 @@ impl RenderDelegate for CrystalRenderDelgate {
         }
 
         let (tx, rx) = channel();
-        tx.send(self.light_pos.clone()); // send initial update
+        tx.send(GameEvent::UpdateLightPos(self.light_pos.clone())); // send initial update
 
         self.tx_pos = Some(tx);
         self.rad_worker = Some(RadWorker::start(scene, colors_buffer_pool, colors_cpu, rx));
@@ -334,10 +361,14 @@ impl RenderDelegate for CrystalRenderDelgate {
             self.light_pos += Vector3::<f32>::unit_x();
             light_update = true;
         }
-
+        if input_state.action1 {
+            if let Some(tx_pos) = &self.tx_pos {
+                tx_pos.send(GameEvent::DoAction1);
+            }
+        }
         if light_update {
             if let Some(tx_pos) = &self.tx_pos {
-                tx_pos.send(self.light_pos.clone());
+                tx_pos.send(GameEvent::UpdateLightPos(self.light_pos.clone()));
             }
         }
 
@@ -446,7 +477,7 @@ impl RenderDelegate for CrystalRenderDelgate {
                     ) * Matrix4::from_nonuniform_scale(1f32, 1f32, -1f32);
 
                     let uniform_data = vs::ty::Data {
-                        world: <Matrix4<f32> as Transform<Point3<f32>>>::one().into(), // from(rotation).into(),
+                        world: <Matrix4<f32> as Transform<Point3>>::one().into(), // from(rotation).into(),
                         view: self.player_model.get_view_matrix().into(), //(view * scale).into(),
                         proj: proj.into(),
                     };

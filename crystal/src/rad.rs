@@ -216,6 +216,11 @@ pub struct Scene {
     pub ff: Vec<(u32, u32, f32)>,
     pub rad_front: Vec<Vec3>,
     pub rad_back: Vec<Vec3>,
+    pub diffuse: Vec<Vec3>,
+}
+
+fn vec_mul(v1: &Vec3, v2: &Vec3) -> Vec3 {
+    cgmath::vec3(v1.x * v2.x, v1.y * v2.y, v1.z * v2.z)
 }
 
 impl Scene {
@@ -225,6 +230,7 @@ impl Scene {
             rad_front: vec![Vec3::zero(); planes.num_planes()],
             rad_back: vec![Vec3::zero(); planes.num_planes()],
             ff: setup_formfactors(&planes, &bitmap),
+            diffuse: vec![Vec3::new(1f32, 1f32, 1f32); planes.num_planes()],
             planes: planes,
             bitmap: bitmap,
         }
@@ -263,9 +269,11 @@ impl Scene {
             // }
 
             self.emit[i] = Vec3::zero(); //new(0.2, 0.2, 0.2);
+            let diff_color = self.diffuse[i];
             if !occluded(light_pos, trace_pos, &self.bitmap) && dot > 0f32 {
                 // println!("light");
-                self.emit[i] += color * dot * (5f32 / (2f32 * 3.1415f32 * len * len));
+                self.emit[i] +=
+                    vec_mul(&diff_color, &color) * dot * (5f32 / (2f32 * 3.1415f32 * len * len));
             }
         }
     }
@@ -278,7 +286,6 @@ impl Scene {
         let mut last_i = 0;
         let mut use_last = false;
         let mut rad = Vec3::zero();
-        let col_diff = Vec3::new(1f32, 1f32, 1f32);
         for (i, j, ff) in &self.ff {
             if *i != last_i && use_last {
                 self.rad_front[last_i as usize] = self.emit[last_i as usize] + rad;
@@ -290,7 +297,10 @@ impl Scene {
             // let emul = |l: Vec3, r: Vec3| Vec3::new(l.x * r.x, l.y * r.y, l.z * r.z);
 
             //rad += emul(col_diff, self.rad_back[*j as usize]) * *ff;
-            rad += self.rad_back[*j as usize] * *ff;
+            rad += vec_mul(
+                &self.rad_back[*j as usize],
+                &(*ff * self.diffuse[*i as usize]),
+            );
         }
 
         if use_last {
