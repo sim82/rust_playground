@@ -1,6 +1,7 @@
 extern crate cgmath;
 extern crate ndarray;
 
+use cgmath::prelude::*;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::iter::Iterator;
@@ -21,7 +22,7 @@ pub type Point3 = cgmath::Point3<f32>;
 
 const NUM_PLANE_CORNERS: usize = 4;
 
-trait Bitmap {
+pub trait Bitmap {
     fn set(&mut self, p: Point3i, v: bool);
 
     fn get(&self, p: Point3i) -> bool;
@@ -180,8 +181,9 @@ impl Dir {
     pub fn get_normal<T: num_traits::cast::FromPrimitive + num_traits::identities::Zero>(
         &self,
     ) -> cgmath::Vector3<T> {
-        let fromi = |x, y, z| {
-            if let (Some(fx), Some(fy), Some(fz)) = (T::from_i32(x), T::from_i32(y), T::from_i32(z))
+        let fromi = |v: Vec3i| {
+            if let (Some(fx), Some(fy), Some(fz)) =
+                (T::from_i32(v.x), T::from_i32(v.y), T::from_i32(v.z))
             {
                 cgmath::Vector3::<T>::new(fx, fy, fz)
             } else {
@@ -190,28 +192,36 @@ impl Dir {
         };
 
         match self {
-            Dir::ZxNeg => fromi(0, -1, 0),
-            Dir::ZxPos => fromi(0, 1, 0),
-            Dir::YzNeg => fromi(-1, 0, 0),
-            Dir::YzPos => fromi(1, 0, 0),
-            Dir::XyNeg => fromi(0, 0, -1),
-            Dir::XyPos => fromi(0, 0, 1),
+            Dir::ZxNeg => fromi(-Vec3i::unit_y()),
+            Dir::ZxPos => fromi(Vec3i::unit_y()),
+            Dir::YzNeg => fromi(-Vec3i::unit_x()),
+            Dir::YzPos => fromi(Vec3i::unit_x()),
+            Dir::XyNeg => fromi(-Vec3i::unit_z()),
+            Dir::XyPos => fromi(Vec3i::unit_z()),
         }
     }
 
     fn get_corners(&self) -> [Vec3i; NUM_PLANE_CORNERS] {
         match self {
             Dir::ZxNeg => [
-                Vec3i { x: 0, y: 0, z: 0 },
-                Vec3i { x: 0, y: 0, z: 1 },
-                Vec3i { x: 1, y: 0, z: 1 },
-                Vec3i { x: 1, y: 0, z: 0 },
+                // Vec3i { x: 0, y: 0, z: 0 },
+                // Vec3i { x: 0, y: 0, z: 1 },
+                // Vec3i { x: 1, y: 0, z: 1 },
+                // Vec3i { x: 1, y: 0, z: 0 },
+                Vec3i::zero(), // TODO: think about if this looks better...
+                Vec3i::unit_z(),
+                Vec3i::unit_x() + Vec3i::unit_z(),
+                Vec3i::unit_x(),
             ],
             Dir::ZxPos => [
-                Vec3i { x: 0, y: 1, z: 0 },
-                Vec3i { x: 1, y: 1, z: 0 },
-                Vec3i { x: 1, y: 1, z: 1 },
-                Vec3i { x: 0, y: 1, z: 1 },
+                // Vec3i { x: 0, y: 1, z: 0 },
+                // Vec3i { x: 1, y: 1, z: 0 },
+                // Vec3i { x: 1, y: 1, z: 1 },
+                // Vec3i { x: 0, y: 1, z: 1 },
+                Vec3i::unit_y() + Vec3i::zero(),
+                Vec3i::unit_y() + Vec3i::unit_x(),
+                Vec3i::unit_y() + Vec3i::unit_z() + Vec3i::unit_x(),
+                Vec3i::unit_y() + Vec3i::unit_z(),
             ],
 
             Dir::YzNeg => [

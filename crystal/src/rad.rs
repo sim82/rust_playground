@@ -211,7 +211,7 @@ fn setup_formfactors(planes: &PlanesSep, bitmap: &BlockMap) -> Vec<(u32, u32, f3
 
 pub struct Scene {
     pub planes: PlanesSep,
-    bitmap: BlockMap,
+    pub bitmap: BlockMap,
     pub emit: Vec<Vec3>,
     pub ff: Vec<(u32, u32, f32)>,
     pub rad_front: Vec<Vec3>,

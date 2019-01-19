@@ -10,7 +10,7 @@ use render_bits::RenderDelegate;
 use render_bits::RenderTest;
 
 use crystal::rad::Scene;
-use crystal::PlanesSep;
+use crystal::{Bitmap, PlanesSep};
 use crystal::{Point3, Point3i, Vec3};
 
 use std::iter;
@@ -47,6 +47,7 @@ enum GameEvent {
     UpdateLightPos(Point3),
     DoAction1,
     DoAction2,
+    DoAction3,
     Stop,
 }
 
@@ -94,6 +95,7 @@ impl RadWorker {
             let mut light_update = false;
             let mut last_stat = Instant::now();
             let mut do_stop = false;
+            // let mut offs = 0;
             while !do_stop {
                 while let Ok(event) = rx_event.try_recv() {
                     match event {
@@ -109,7 +111,7 @@ impl RadWorker {
                             // let color2 = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
                             let color2 = Vector3::new(0f32, 1f32, 0f32);
                             for (i, plane) in scene.planes.planes_iter().enumerate() {
-                                if (plane.cell.y / 2) % 2 == 1 {
+                                if ((plane.cell.y) / 2) % 2 == 1 {
                                     continue;
                                 }
                                 scene.diffuse[i] = match plane.dir {
@@ -127,24 +129,41 @@ impl RadWorker {
                         GameEvent::DoAction1 => {
                             let mut rng = thread_rng();
 
-                            for i in 0..scene.planes.num_planes() {
-                                // seriously, there is no Vec.fill?
-                                scene.diffuse[i] = Vec3::new(1f32, 1f32, 1f32);
-                                scene.emit[i] = Vec3::zero();
-                            }
+                            let color1 = hsv_to_rgb(rng.gen_range(0.0, 180.0), 1.0, 1.0);
+                            let color2 = hsv_to_rgb(rng.gen_range(180.0, 360.0), 1.0, 1.0);
+                            let color3 = hsv_to_rgb(rng.gen_range(0.0, 180.0), 1.0, 1.0);
+                            let color4 = hsv_to_rgb(rng.gen_range(180.0, 360.0), 1.0, 1.0);
 
-                            let num_dots = 1000;
-                            for _ in 0..num_dots {
-                                let i = rng.gen_range(0, scene.planes.num_planes());
-                                scene.emit[i] = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
+                            for (i, plane) in scene.planes.planes_iter().enumerate() {
+                                scene.diffuse[i] = Vector3::new(1f32, 1f32, 1f32);
+
+                                let up = plane.cell + crystal::Dir::ZxPos.get_normal::<i32>();
+                                let not_edge = (&scene.bitmap as &Bitmap).get(up);
+
+                                scene.emit[i] = if not_edge {
+                                    Vector3::zero()
+                                } else {
+                                    match plane.dir {
+                                        crystal::Dir::YzPos => color1,
+                                        crystal::Dir::YzNeg => color2,
+                                        crystal::Dir::XyPos => color3,
+                                        crystal::Dir::XyNeg => color4,
+                                        // crystal::Dir::XyPos | crystal::Dir::XyNeg => {
+                                        //     Vector3::new(0.8f32, 0.8f32, 0.8f32)
+                                        // }
+                                        _ => Vector3::zero(),
+                                        // let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0); //random::<f32>(), 1.0, 1.0);
+                                        // scene.diffuse[i] = Vector3::new(color.0, color.1, color.2);
+                                    }
+                                }
                             }
                         }
                         GameEvent::DoAction2 => {
                             let mut rng = thread_rng();
 
-                            let color1 = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
+                            let color1 = hsv_to_rgb(rng.gen_range(0.0, 180.0), 1.0, 1.0);
                             // let color1 = Vector3::new(1f32, 0.5f32, 0f32);
-                            let color2 = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
+                            let color2 = hsv_to_rgb(rng.gen_range(180.0, 360.0), 1.0, 1.0);
 
                             for (i, plane) in scene.planes.planes_iter().enumerate() {
                                 scene.diffuse[i] = Vector3::new(1f32, 1f32, 1f32);
@@ -162,6 +181,22 @@ impl RadWorker {
                                         // scene.diffuse[i] = Vector3::new(color.0, color.1, color.2);
                                     }
                                 }
+                            }
+                            //offs += 1;
+                        }
+                        GameEvent::DoAction3 => {
+                            let mut rng = thread_rng();
+
+                            for i in 0..scene.planes.num_planes() {
+                                // seriously, there is no Vec.fill?
+                                scene.diffuse[i] = Vec3::new(1f32, 1f32, 1f32);
+                                scene.emit[i] = Vec3::zero();
+                            }
+
+                            let num_dots = 1000;
+                            for _ in 0..num_dots {
+                                let i = rng.gen_range(0, scene.planes.num_planes());
+                                scene.emit[i] = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
                             }
                         }
                     }
