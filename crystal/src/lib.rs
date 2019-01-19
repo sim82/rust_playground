@@ -1,8 +1,6 @@
 extern crate cgmath;
 extern crate ndarray;
 
-use std::collections::hash_map;
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::iter::Iterator;

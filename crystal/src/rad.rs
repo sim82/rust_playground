@@ -3,8 +3,8 @@ extern crate serde_json;
 
 extern crate bincode;
 
-use super::DisplayWrap;
-use super::{Bitmap, BlockMap, Point3, Point3i, Vec3, Vec3i};
+#[allow(unused_imports)]
+use super::{Bitmap, BlockMap, DisplayWrap, Point3, Point3i, Vec3, Vec3i};
 use super::{Dir, Plane, PlanesSep};
 use cgmath::prelude::*;
 use std::cmp::Ordering;
@@ -179,7 +179,7 @@ fn setup_formfactors(planes: &PlanesSep, bitmap: &BlockMap) -> Vec<(u32, u32, f3
             let mut ffs = setup_formfactors_single(planes, bitmap);
             {
                 let file = std::fs::File::create(filename).unwrap();
-                bincode::serialize_into(BufWriter::new(file), &ffs);
+                bincode::serialize_into(BufWriter::new(file), &ffs).unwrap();
             }
             println!("wrote {}", filename);
             ffs

@@ -13,15 +13,12 @@ use crystal::rad::Scene;
 use crystal::PlanesSep;
 use crystal::{Point3, Point3i, Vec3};
 
-use std::cell::RefCell;
 use std::iter;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use vulkano::buffer::cpu_pool::CpuBufferPoolChunk;
-use vulkano::buffer::{
-    BufferUsage, CpuAccessibleBuffer, CpuBufferPool, DeviceLocalBuffer, ImmutableBuffer,
-};
+use vulkano::buffer::{BufferUsage, CpuBufferPool, ImmutableBuffer};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::framebuffer::{FramebufferAbstract, Subpass};
@@ -216,7 +213,6 @@ impl RadWorker {
 struct CrystalRenderDelgate {
     player_model: PlayerFlyModel,
     vertex_buffer: Option<Arc<ImmutableBuffer<[Vertex]>>>,
-    normals_buffer: Option<Arc<ImmutableBuffer<[Normal]>>>,
     colors_buffer_gpu:
         Option<Arc<CpuBufferPoolChunk<Color, Arc<vulkano::memory::pool::StdMemoryPool>>>>,
     // colors_buffer_pool: Option<CpuBufferPool<Color>>,
@@ -243,7 +239,6 @@ impl CrystalRenderDelgate {
                 cgmath::Deg(35f32),
             ),
             vertex_buffer: None,
-            normals_buffer: None,
             colors_buffer_gpu: None,
             // colors_buffer_pool: None,
             // colors_buffer: None,
@@ -335,11 +330,6 @@ impl RenderDelegate for CrystalRenderDelgate {
                 });
             }
 
-            let normals = normals.iter().cloned();
-            let (normals_buffer, nb_future) =
-                ImmutableBuffer::from_iter(normals, BufferUsage::all(), render_test.queue.clone())
-                    .unwrap();
-
             let indices = indices.iter().cloned();
             let (index_buffer, ib_future) =
                 ImmutableBuffer::from_iter(indices, BufferUsage::all(), render_test.queue.clone())
@@ -348,16 +338,16 @@ impl RenderDelegate for CrystalRenderDelgate {
             let uniform_buffer =
                 CpuBufferPool::<vs::ty::Data>::new(render_test.device.clone(), BufferUsage::all());
             self.vertex_buffer = Some(vertex_buffer);
-            self.normals_buffer = Some(normals_buffer);
             self.index_buffer = Some(index_buffer);
             self.uniform_buffer = Some(uniform_buffer);
 
             colors_buffer_pool = CpuBufferPool::new(render_test.device.clone(), BufferUsage::all());
-            future = Box::new(vb_future.join(nb_future.join(ib_future)))
+            future = Box::new(vb_future.join(ib_future))
         }
 
         let (tx, rx) = channel();
-        tx.send(GameEvent::UpdateLightPos(self.light_pos.clone())); // send initial update
+        tx.send(GameEvent::UpdateLightPos(self.light_pos.clone()))
+            .unwrap(); // send initial update
 
         self.tx_pos = Some(tx);
         self.rad_worker = Some(RadWorker::start(scene, colors_buffer_pool, colors_cpu, rx));
@@ -366,11 +356,11 @@ impl RenderDelegate for CrystalRenderDelgate {
     }
     fn shutdown(self) {
         if let Some(tx_pos) = &self.tx_pos {
-            tx_pos.send(GameEvent::Stop);
+            tx_pos.send(GameEvent::Stop).unwrap();
         }
         if let Some(rad_worker) = self.rad_worker {
             print!("joining rad_worker ...");
-            rad_worker.join_handle.join();
+            rad_worker.join_handle.join().unwrap();
             println!(" done");
         }
     }
@@ -437,17 +427,19 @@ impl RenderDelegate for CrystalRenderDelgate {
         }
         if input_state.action1 {
             if let Some(tx_pos) = &self.tx_pos {
-                tx_pos.send(GameEvent::DoAction1);
+                tx_pos.send(GameEvent::DoAction1).unwrap();
             }
         }
         if input_state.action2 {
             if let Some(tx_pos) = &self.tx_pos {
-                tx_pos.send(GameEvent::DoAction2);
+                tx_pos.send(GameEvent::DoAction2).unwrap();
             }
         }
         if light_update {
             if let Some(tx_pos) = &self.tx_pos {
-                tx_pos.send(GameEvent::UpdateLightPos(self.light_pos.clone()));
+                tx_pos
+                    .send(GameEvent::UpdateLightPos(self.light_pos.clone()))
+                    .unwrap();
             }
         }
 
@@ -529,7 +521,6 @@ impl RenderDelegate for CrystalRenderDelgate {
     > {
         match (
             &self.vertex_buffer,
-            &self.normals_buffer,
             // &self.colors_buffer,
             &self.colors_buffer_gpu,
             &self.index_buffer,
@@ -537,7 +528,6 @@ impl RenderDelegate for CrystalRenderDelgate {
         ) {
             (
                 Some(vertex_buffer),
-                Some(normals_buffer),
                 // Some(colors_buffer),
                 Some(colors_buffer_gpu),
                 Some(index_buffer),

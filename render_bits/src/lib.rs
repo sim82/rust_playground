@@ -37,7 +37,6 @@ use winit::Window;
 use cgmath::prelude::*;
 use cgmath::{Deg, Matrix4, Point3, Vector4};
 
-use std::cell::RefCell;
 use std::sync::Arc;
 
 #[derive(Copy, Clone)]
