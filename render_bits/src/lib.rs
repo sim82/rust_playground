@@ -177,12 +177,10 @@ pub struct RenderTest {
     swapchain: Arc<Swapchain<Window>>,
     images: Vec<Arc<SwapchainImage<Window>>>,
     pub render_pass: Arc<RenderPassAbstract + Send + Sync>,
-
-    delegate: Arc<RefCell<RenderDelegate>>,
 }
 
 impl RenderTest {
-    fn new(delegate: Arc<RefCell<RenderDelegate>>) -> RenderTest {
+    fn new() -> RenderTest {
         let extensions = vulkano_win::required_extensions();
         let instance = Instance::new(None, &extensions, None).unwrap();
         let events_loop = winit::EventsLoop::new();
@@ -288,7 +286,6 @@ impl RenderTest {
             swapchain: swapchain,
             images: images,
             render_pass: render_pass,
-            delegate: delegate,
         }
     }
 
@@ -304,12 +301,7 @@ impl RenderTest {
             panic!("panic")
         }
     }
-    fn recreate_swapchain(
-        &mut self,
-    ) -> (
-        Arc<GraphicsPipelineAbstract + Send + Sync>,
-        Vec<Arc<FramebufferAbstract + Send + Sync>>,
-    ) {
+    fn recreate_swapchain(&mut self) -> Vec<Arc<FramebufferAbstract + Send + Sync>> {
         let dimensions = self.dimension();
         let (new_swapchain, new_images) = match self.swapchain.recreate_with_dimension(dimensions) {
             Ok(r) => r,
@@ -322,12 +314,7 @@ impl RenderTest {
         self.window_size_dependent_setup()
     }
 
-    fn window_size_dependent_setup(
-        &self,
-    ) -> (
-        Arc<GraphicsPipelineAbstract + Send + Sync>,
-        Vec<Arc<FramebufferAbstract + Send + Sync>>,
-    ) {
+    fn window_size_dependent_setup(&self) -> Vec<Arc<FramebufferAbstract + Send + Sync>> {
         let dimensions = self.images[0].dimensions();
 
         let depth_buffer =
@@ -349,14 +336,13 @@ impl RenderTest {
             })
             .collect::<Vec<_>>();
 
-        let pipeline = self.delegate.borrow().create_pipeline(self);
-        (pipeline, framebuffers)
+        framebuffers
     }
 }
 
 pub trait RenderDelegate {
     fn init(&mut self, render_test: &RenderTest) -> Box<vulkano::sync::GpuFuture>;
-
+    fn shutdown(self);
     fn create_pipeline(
         &self,
         render_test: &RenderTest,
@@ -378,14 +364,15 @@ pub trait RenderDelegate {
     >;
 }
 
-pub fn render_test(delegate: Arc<RefCell<RenderDelegate>>) {
-    let mut render_test = RenderTest::new(delegate.clone());
+pub fn render_test(delegate: &mut RenderDelegate) {
+    let mut render_test = RenderTest::new();
     //let vertex_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), vertices).unwrap();
 
-    let (mut pipeline, mut framebuffers) = render_test.window_size_dependent_setup();
+    let mut framebuffers = render_test.window_size_dependent_setup();
+    let mut pipeline = delegate.create_pipeline(&render_test);
     let mut recreate_swapchain = false;
 
-    let mut previous_frame = delegate.borrow_mut().init(&render_test);
+    let mut previous_frame = delegate.init(&render_test);
     let mut old_pos = None as Option<winit::dpi::LogicalPosition>;
     let mut input_state = InputState::new();
 
@@ -393,9 +380,8 @@ pub fn render_test(delegate: Arc<RefCell<RenderDelegate>>) {
         previous_frame.cleanup_finished();
 
         if recreate_swapchain {
-            let tmp = render_test.recreate_swapchain();
-            pipeline = tmp.0;
-            framebuffers = tmp.1;
+            framebuffers = render_test.recreate_swapchain();
+            pipeline = delegate.create_pipeline(&render_test);
             recreate_swapchain = false;
         }
         let (image_num, acquire_future) =
@@ -408,8 +394,8 @@ pub fn render_test(delegate: Arc<RefCell<RenderDelegate>>) {
                 Err(err) => panic!("{:?}", err),
             };
 
-        let update_fut = delegate.borrow_mut().update(&render_test, &input_state);
-        let command_buffer = delegate.borrow_mut().frame(
+        let update_fut = delegate.update(&render_test, &input_state);
+        let command_buffer = delegate.frame(
             &render_test,
             framebuffers[image_num].clone(),
             pipeline.clone(),

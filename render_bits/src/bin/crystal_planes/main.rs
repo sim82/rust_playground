@@ -50,6 +50,7 @@ enum GameEvent {
     UpdateLightPos(Point3),
     DoAction1,
     DoAction2,
+    Stop,
 }
 
 struct RadWorker {
@@ -85,7 +86,7 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> Vec3 {
 impl RadWorker {
     fn start(
         mut scene: Scene,
-        mut colors_buffer_pool: CpuBufferPool<Color>,
+        colors_buffer_pool: CpuBufferPool<Color>,
         mut colors_cpu: Vec<Color>,
         rx_event: Receiver<GameEvent>,
     ) -> RadWorker {
@@ -95,15 +96,16 @@ impl RadWorker {
             let mut light_pos = crystal::Point3::new(120f32, 32f32, 80f32);
             let mut light_update = false;
             let mut last_stat = Instant::now();
-            loop {
+            let mut do_stop = false;
+            while !do_stop {
                 while let Ok(event) = rx_event.try_recv() {
                     match event {
+                        GameEvent::Stop => do_stop = true,
                         GameEvent::UpdateLightPos(pos) => {
                             light_pos = pos;
                             light_update = true;
                             // }
                             // GameEvent::DoAction1 => {
-                            let mut rng = thread_rng();
 
                             // let color1 = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
                             let color1 = Vector3::new(1f32, 0.5f32, 0f32);
@@ -124,23 +126,20 @@ impl RadWorker {
                                     // scene.diffuse[i] = Vector3::new(color.0, color.1, color.2);
                                 }
                             }
-                            light_update = true;
                         }
                         GameEvent::DoAction1 => {
                             let mut rng = thread_rng();
 
-                            let color1 = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
-                            // let color1 = Vector3::new(1f32, 0.5f32, 0f32);
-                            let color2 = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
+                            for i in 0..scene.planes.num_planes() {
+                                // seriously, there is no Vec.fill?
+                                scene.diffuse[i] = Vec3::new(1f32, 1f32, 1f32);
+                                scene.emit[i] = Vec3::zero();
+                            }
 
-                            for (i, plane) in scene.planes.planes_iter().enumerate() {
-                                scene.diffuse[i] = Vector3::new(1f32, 1f32, 1f32);
-
-                                scene.emit[i] = if rng.gen::<f32>() > 0.01 {
-                                    Vector3::zero()
-                                } else {
-                                    hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0)
-                                }
+                            let num_dots = 100;
+                            for _ in 0..num_dots {
+                                let i = rng.gen_range(0, scene.planes.num_planes());
+                                scene.emit[i] = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
                             }
                         }
                         GameEvent::DoAction2 => {
@@ -195,7 +194,7 @@ impl RadWorker {
                     .chunk(colors_cpu.iter().map(|x| *x))
                     .unwrap();
 
-                tx.send(chunk);
+                tx.send(chunk).unwrap();
                 let d_time = last_stat.elapsed();
                 if d_time >= Duration::from_secs(1) {
                     let pintss = scene.pints as f64
@@ -236,8 +235,8 @@ struct CrystalRenderDelgate {
 }
 
 impl CrystalRenderDelgate {
-    fn new() -> Arc<RefCell<CrystalRenderDelgate>> {
-        Arc::new(RefCell::new(CrystalRenderDelgate {
+    fn new() -> CrystalRenderDelgate {
+        CrystalRenderDelgate {
             player_model: PlayerFlyModel::new(
                 Point3::new(31f32, 12f32, 4f32),
                 cgmath::Deg(-65f32),
@@ -257,7 +256,7 @@ impl CrystalRenderDelgate {
 
             rad_worker: None,
             tx_pos: None,
-        }))
+        }
     }
 }
 
@@ -364,6 +363,16 @@ impl RenderDelegate for CrystalRenderDelgate {
         self.rad_worker = Some(RadWorker::start(scene, colors_buffer_pool, colors_cpu, rx));
 
         future
+    }
+    fn shutdown(self) {
+        if let Some(tx_pos) = &self.tx_pos {
+            tx_pos.send(GameEvent::Stop);
+        }
+        if let Some(rad_worker) = self.rad_worker {
+            print!("joining rad_worker ...");
+            rad_worker.join_handle.join();
+            println!(" done");
+        }
     }
 
     fn create_pipeline(
@@ -610,9 +619,10 @@ impl RenderDelegate for CrystalRenderDelgate {
 }
 
 fn main() {
-    let delegate = CrystalRenderDelgate::new();
+    let mut delegate = CrystalRenderDelgate::new();
 
-    render_bits::render_test(delegate);
+    render_bits::render_test(&mut delegate);
+    delegate.shutdown();
 }
 
 pub mod vs {
