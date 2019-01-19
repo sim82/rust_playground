@@ -133,7 +133,7 @@ impl RadWorker {
                                 scene.emit[i] = Vec3::zero();
                             }
 
-                            let num_dots = 100;
+                            let num_dots = 1000;
                             for _ in 0..num_dots {
                                 let i = rng.gen_range(0, scene.planes.num_planes());
                                 scene.emit[i] = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
