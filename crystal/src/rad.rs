@@ -168,13 +168,18 @@ fn setup_formfactors_single(planes: &PlanesSep, bitmap: &BlockMap) -> Vec<(u32, 
 }
 
 fn setup_formfactors(planes: &PlanesSep, bitmap: &BlockMap) -> Vec<(u32, u32, f32)> {
-    let filename = "ffs2.bin";
-
+    let filename = "ffs3.bin";
+    let version = "v2";
     if let Ok(f) = std::fs::File::open(filename) {
         println!("read from {}", filename);
-        let ret = bincode::deserialize_from(BufReader::new(f)).unwrap();
-        println!("done");
-        return ret;
+        let (file_version, ffs): (String, Vec<(u32, u32, f32)>) =
+            bincode::deserialize_from(BufReader::new(f)).unwrap();
+
+        if file_version == version {
+            println!("done");
+            return ffs;
+        }
+        println!("wrong version");
     }
 
     let mut ffs = setup_formfactors_single(planes, bitmap);
@@ -200,7 +205,7 @@ fn setup_formfactors(planes: &PlanesSep, bitmap: &BlockMap) -> Vec<(u32, u32, f3
     println!("sorted");
 
     if let Ok(file) = std::fs::File::create(filename) {
-        bincode::serialize_into(BufWriter::new(file), &ffs).unwrap();
+        bincode::serialize_into(BufWriter::new(file), &(version.to_string(), ffs.clone())).unwrap();
         println!("wrote {}", filename);
     }
     // write_ffs_debug(&ffs);
@@ -320,9 +325,6 @@ impl Scene {
     }
 
     pub fn do_rad(&mut self) {
-        // self.rad_front = self.emit.clone();
-        // return;
-
         std::mem::swap(&mut self.rad_front, &mut self.rad_back);
 
         for (i, ff_i) in self.ff.iter().enumerate() {

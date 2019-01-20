@@ -304,7 +304,7 @@ impl PlanesSep {
         let mut zx_planes = Vec::<Plane>::new();
         let mut xy_planes = Vec::<Plane>::new();
         let mut yz_planes = Vec::<Plane>::new();
-        let mut zxn_planes = Vec::<Plane>::new();
+        let mut zxn_planes = Vec::<Plane>::new(); // need separate vecs for &mut...
         let mut xyn_planes = Vec::<Plane>::new();
         let mut yzn_planes = Vec::<Plane>::new();
 
@@ -343,12 +343,43 @@ impl PlanesSep {
                 }
             }
         }
-        zx_planes.append(&mut zxn_planes);
-        xy_planes.append(&mut xyn_planes);
-        yz_planes.append(&mut yzn_planes);
+
+        let zx_order = |p1: &Plane, p2: &Plane| match p1.cell.y.cmp(&p2.cell.y) {
+            std::cmp::Ordering::Equal => match p1.cell.z.cmp(&p2.cell.z) {
+                std::cmp::Ordering::Equal => p1.cell.x.cmp(&p2.cell.x),
+                r => r,
+            },
+            r => r,
+        };
+
+        let xy_order = |p1: &Plane, p2: &Plane| match p1.cell.z.cmp(&p2.cell.z) {
+            std::cmp::Ordering::Equal => match p1.cell.x.cmp(&p2.cell.x) {
+                std::cmp::Ordering::Equal => p1.cell.y.cmp(&p2.cell.y),
+                r => r,
+            },
+            r => r,
+        };
+        let yz_order = |p1: &Plane, p2: &Plane| match p1.cell.x.cmp(&p2.cell.x) {
+            std::cmp::Ordering::Equal => match p1.cell.y.cmp(&p2.cell.y) {
+                std::cmp::Ordering::Equal => p1.cell.z.cmp(&p2.cell.z),
+                r => r,
+            },
+            r => r,
+        };
+
+        zx_planes.sort_by(zx_order);
+        zxn_planes.sort_by(zx_order);
+        xy_planes.sort_by(xy_order);
+        xyn_planes.sort_by(xy_order);
+        yz_planes.sort_by(yz_order);
+        yzn_planes.sort_by(yz_order);
+
         self.planes.append(&mut zx_planes);
         self.planes.append(&mut xy_planes);
         self.planes.append(&mut yz_planes);
+        self.planes.append(&mut zxn_planes);
+        self.planes.append(&mut xyn_planes);
+        self.planes.append(&mut yzn_planes);
     }
 
     pub fn print(&self) {
