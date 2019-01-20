@@ -1,2 +1,6 @@
 [workspace]
 members = ["crystal", "render_bits"]
+
+
+[profile.release]
+debug = true

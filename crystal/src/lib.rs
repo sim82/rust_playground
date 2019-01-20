@@ -301,23 +301,30 @@ impl PlanesSep {
 
 impl PlanesSep {
     pub fn create_planes(&mut self, bitmap: &BlockMap) {
+        let mut zx_planes = Vec::<Plane>::new();
+        let mut xy_planes = Vec::<Plane>::new();
+        let mut yz_planes = Vec::<Plane>::new();
+        let mut zxn_planes = Vec::<Plane>::new();
+        let mut xyn_planes = Vec::<Plane>::new();
+        let mut yzn_planes = Vec::<Plane>::new();
+
         for ((x, y, z), v) in bitmap.indexed_iter() {
             // println!("{} {} {}", x, y, z);
             if !v {
                 continue;
             }
             let this_point = Point3i::new(x as i32, y as i32, z as i32);
-            for dir in [
-                Dir::ZxNeg,
-                Dir::ZxPos,
-                Dir::XyNeg,
-                Dir::XyPos,
-                Dir::YzNeg,
-                Dir::YzPos,
+            for (dir, vec) in [
+                (Dir::ZxNeg, &mut zxn_planes),
+                (Dir::ZxPos, &mut zx_planes),
+                (Dir::XyNeg, &mut xyn_planes),
+                (Dir::XyPos, &mut xy_planes),
+                (Dir::YzNeg, &mut yzn_planes),
+                (Dir::YzPos, &mut yz_planes),
             ]
-            .iter()
+            .iter_mut()
             {
-                let create_plane = match bitmap.step(this_point, dir) {
+                let create_plane = match bitmap.step(this_point, &dir) {
                     Some(p) => !Bitmap::get(bitmap, p),
                     None => *dir != Dir::ZxNeg, // don't create downfacing planes on bottom
                 };
@@ -332,10 +339,16 @@ impl PlanesSep {
                         points[i] = self.vertices.len() as i32;
                         self.vertices.push(c);
                     }
-                    self.planes.push(Plane::new(points, *dir, this_point));
+                    vec.push(Plane::new(points, *dir, this_point));
                 }
             }
         }
+        zx_planes.append(&mut zxn_planes);
+        xy_planes.append(&mut xyn_planes);
+        yz_planes.append(&mut yzn_planes);
+        self.planes.append(&mut zx_planes);
+        self.planes.append(&mut xy_planes);
+        self.planes.append(&mut yz_planes);
     }
 
     pub fn print(&self) {

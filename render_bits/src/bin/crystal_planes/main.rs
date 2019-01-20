@@ -207,20 +207,30 @@ impl RadWorker {
                     light_update = false;
                 }
                 scene.do_rad();
-                for (i, plane) in colors_cpu.chunks_mut(4).enumerate() {
-                    // let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 0.5, 1.0); //random::<f32>(), 1.0, 1.0);
-
-                    let color = (
-                        scene.rad_front[i].x,
-                        scene.rad_front[i].y,
-                        scene.rad_front[i].z,
-                    );
-
-                    plane[0].color = color;
-                    plane[1].color = color;
-                    plane[2].color = color;
-                    plane[3].color = color;
+                for (i, plane) in scene.planes.planes_iter().enumerate() {
+                    for v in plane.vertices.iter() {
+                        colors_cpu[*v as usize].color = (
+                            scene.rad_front[i].x,
+                            scene.rad_front[i].y,
+                            scene.rad_front[i].z,
+                        );
+                    }
                 }
+
+                // for (i, plane) in colors_cpu.chunks_mut(4).enumerate() {
+                //     // let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 0.5, 1.0); //random::<f32>(), 1.0, 1.0);
+
+                //     let color = (
+                //         scene.rad_front[i].x,
+                //         scene.rad_front[i].y,
+                //         scene.rad_front[i].z,
+                //     );
+
+                //     plane[0].color = color;
+                //     plane[1].color = color;
+                //     plane[2].color = color;
+                //     plane[3].color = color;
+                // }
 
                 let chunk = colors_buffer_pool
                     .chunk(colors_cpu.iter().map(|x| *x))
@@ -321,17 +331,6 @@ impl RenderDelegate for CrystalRenderDelgate {
                     ),
                 })
                 .collect();
-            let normals: Vec<_> = planes
-                .planes_iter()
-                .flat_map(|plane| {
-                    let normal = Normal::from(plane.dir.get_normal::<f32>());
-                    vec![normal, normal, normal, normal]
-                    // .iter()
-                    // .map(|y| *y)
-                    // .collect::<Vec<_>>()
-                })
-                .collect();
-            assert!(vertices.len() == normals.len());
 
             let indices: Vec<_> = planes
                 .planes_iter()

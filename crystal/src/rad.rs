@@ -168,24 +168,16 @@ fn setup_formfactors_single(planes: &PlanesSep, bitmap: &BlockMap) -> Vec<(u32, 
 }
 
 fn setup_formfactors(planes: &PlanesSep, bitmap: &BlockMap) -> Vec<(u32, u32, f32)> {
-    let filename = "ffs.bin";
+    let filename = "ffs2.bin";
 
-    let input_file = std::fs::File::open(filename);
-    let mut ffs = match input_file {
-        Ok(f) => {
-            println!("read from {}", filename);
-            bincode::deserialize_from(BufReader::new(f)).unwrap()
-        }
-        Err(_) => {
-            let mut ffs = setup_formfactors_single(planes, bitmap);
-            {
-                let file = std::fs::File::create(filename).unwrap();
-                bincode::serialize_into(BufWriter::new(file), &ffs).unwrap();
-            }
-            println!("wrote {}", filename);
-            ffs
-        }
-    };
+    if let Ok(f) = std::fs::File::open(filename) {
+        println!("read from {}", filename);
+        let ret = bincode::deserialize_from(BufReader::new(f)).unwrap();
+        println!("done");
+        return ret;
+    }
+
+    let mut ffs = setup_formfactors_single(planes, bitmap);
 
     println!("num ffs: {}", ffs.len());
 
@@ -206,7 +198,12 @@ fn setup_formfactors(planes: &PlanesSep, bitmap: &BlockMap) -> Vec<(u32, u32, f3
     //     serde_json::to_writer(BufWriter::new(file), &ffs);
     // }
     println!("sorted");
-    write_ffs_debug(&ffs);
+
+    if let Ok(file) = std::fs::File::create(filename) {
+        bincode::serialize_into(BufWriter::new(file), &ffs).unwrap();
+        println!("wrote {}", filename);
+    }
+    // write_ffs_debug(&ffs);
     ffs
 }
 
@@ -223,14 +220,15 @@ fn write_ffs_debug(ffs: &Vec<(u32, u32, f32)>) {
     println!("painting...");
     let mut image = ImageBuffer::new(width, height);
 
-    for (x, y, f) in ffs {
+    for (x, y, _) in ffs {
         let pixel = image.get_pixel_mut(*x, *y);
         // *pixel = image::Luma([((*f / maxf) * 255f32) as u8]);
-        *pixel = if *f != 0f32 {
-            image::Luma([255u8])
-        } else {
-            image::Luma([0u8])
-        }
+        // *pixel = if *f != 0f32 {
+        //     image::Luma([255u8])
+        // } else {
+        //     image::Luma([0u8])
+        // }
+        *pixel = image::Luma([255u8]);
     }
     println!("writing ffs.png");
 
@@ -238,11 +236,23 @@ fn write_ffs_debug(ffs: &Vec<(u32, u32, f32)>) {
     println!("done");
 }
 
+fn split_formfactors(ff_in: Vec<(u32, u32, f32)>) -> Vec<Vec<(u32, f32)>> {
+    let num = ff_in.iter().map(|(i, _, _)| i).max().unwrap() + 1;
+
+    let mut ff_out = vec![Vec::new(); num as usize];
+    for (i, j, ff) in ff_in.iter() {
+        ff_out[*i as usize].push((*j, *ff));
+    }
+
+    ff_out
+}
+
 pub struct Scene {
     pub planes: PlanesSep,
     pub bitmap: BlockMap,
     pub emit: Vec<Vec3>,
-    pub ff: Vec<(u32, u32, f32)>,
+    // pub ff: Vec<(u32, u32, f32)>,
+    pub ff: Vec<Vec<(u32, f32)>>,
     pub rad_front: Vec<Vec3>,
     pub rad_back: Vec<Vec3>,
     pub diffuse: Vec<Vec3>,
@@ -259,7 +269,7 @@ impl Scene {
             emit: vec![Vec3::zero(); planes.num_planes()],
             rad_front: vec![Vec3::zero(); planes.num_planes()],
             rad_back: vec![Vec3::zero(); planes.num_planes()],
-            ff: setup_formfactors(&planes, &bitmap),
+            ff: split_formfactors(setup_formfactors(&planes, &bitmap)),
             diffuse: vec![Vec3::new(1f32, 1f32, 1f32); planes.num_planes()],
             planes: planes,
             bitmap: bitmap,
@@ -314,30 +324,19 @@ impl Scene {
         // return;
 
         std::mem::swap(&mut self.rad_front, &mut self.rad_back);
-        let mut last_i = 0;
-        let mut use_last = false;
-        let mut rad = Vec3::zero();
-        for (i, j, ff) in &self.ff {
-            if *i != last_i && use_last {
-                self.rad_front[last_i as usize] = self.emit[last_i as usize] + rad;
-                rad = Vec3::zero();
+
+        for (i, ff_i) in self.ff.iter().enumerate() {
+            let mut rad = Vec3::zero();
+
+            for (j, ff) in ff_i {
+                rad += vec_mul(
+                    &self.rad_back[*j as usize],
+                    &(*ff * self.diffuse[i as usize]),
+                );
             }
-            last_i = *i;
-            use_last = true;
 
-            // let emul = |l: Vec3, r: Vec3| Vec3::new(l.x * r.x, l.y * r.y, l.z * r.z);
-
-            //rad += emul(col_diff, self.rad_back[*j as usize]) * *ff;
-
-            rad += vec_mul(
-                &self.rad_back[*j as usize],
-                &(*ff * self.diffuse[*i as usize]),
-            );
+            self.rad_front[i as usize] = self.emit[i as usize] + rad;
+            self.pints += ff_i.len();
         }
-
-        if use_last {
-            self.rad_front[last_i as usize] = self.emit[last_i as usize] + rad;
-        }
-        self.pints += self.ff.len();
     }
 }
