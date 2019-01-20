@@ -1,15 +1,16 @@
+extern crate bincode;
+extern crate image;
 extern crate serde;
 extern crate serde_json;
 
-extern crate bincode;
-
+use self::image::ImageBuffer;
 #[allow(unused_imports)]
 use super::{Bitmap, BlockMap, DisplayWrap, Point3, Point3i, Vec3, Vec3i};
 use super::{Dir, Plane, PlanesSep};
 use cgmath::prelude::*;
 use std::cmp::Ordering;
+use std::fs::File;
 use std::io::{BufReader, BufWriter};
-
 fn occluded(p0: Point3i, p1: Point3i, solid: &Bitmap) -> bool {
     // 3d bresenham, ripped from http://www.cobrabytes.com/index.php?topic=1150.0
 
@@ -205,8 +206,36 @@ fn setup_formfactors(planes: &PlanesSep, bitmap: &BlockMap) -> Vec<(u32, u32, f3
     //     serde_json::to_writer(BufWriter::new(file), &ffs);
     // }
     println!("sorted");
-
+    write_ffs_debug(&ffs);
     ffs
+}
+
+fn write_ffs_debug(ffs: &Vec<(u32, u32, f32)>) {
+    let width = ffs.iter().map(|(x, _, _)| *x).max().unwrap_or(0) + 1;
+    let height = ffs.iter().map(|(_, y, _)| *y).max().unwrap_or(0) + 1;
+    let maxf = ffs
+        .iter()
+        .map(|(_, _, f)| *f)
+        .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)) // seriously?
+        .unwrap_or(0f32);
+
+    println!("{} {} {}", width, height, maxf);
+    println!("painting...");
+    let mut image = ImageBuffer::new(width, height);
+
+    for (x, y, f) in ffs {
+        let pixel = image.get_pixel_mut(*x, *y);
+        // *pixel = image::Luma([((*f / maxf) * 255f32) as u8]);
+        *pixel = if *f != 0f32 {
+            image::Luma([255u8])
+        } else {
+            image::Luma([0u8])
+        }
+    }
+    println!("writing ffs.png");
+
+    image.save("ffs.png").unwrap();
+    println!("done");
 }
 
 pub struct Scene {
