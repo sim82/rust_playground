@@ -252,14 +252,32 @@ fn split_formfactors(ff_in: Vec<(u32, u32, f32)>) -> Vec<Vec<(u32, f32)>> {
     ff_out
 }
 
+pub struct RadBuffer {
+    pub r: Vec<f32>,
+    pub g: Vec<f32>,
+    pub b: Vec<f32>,
+}
+
+impl RadBuffer {
+    fn new(size: usize) -> RadBuffer {
+        RadBuffer {
+            r: vec![0f32; size],
+            g: vec![0f32; size],
+            b: vec![0f32; size],
+        }
+    }
+}
+
 pub struct Scene {
     pub planes: PlanesSep,
     pub bitmap: BlockMap,
     pub emit: Vec<Vec3>,
     // pub ff: Vec<(u32, u32, f32)>,
     pub ff: Vec<Vec<(u32, f32)>>,
-    pub rad_front: Vec<Vec3>,
-    pub rad_back: Vec<Vec3>,
+    // pub rad_front: Vec<Vec3>,
+    // pub rad_back: Vec<Vec3>,
+    pub rad_front: RadBuffer,
+    pub rad_back: RadBuffer,
     pub diffuse: Vec<Vec3>,
     pub pints: usize,
 }
@@ -272,8 +290,11 @@ impl Scene {
     pub fn new(planes: PlanesSep, bitmap: BlockMap) -> Self {
         Scene {
             emit: vec![Vec3::zero(); planes.num_planes()],
-            rad_front: vec![Vec3::zero(); planes.num_planes()],
-            rad_back: vec![Vec3::zero(); planes.num_planes()],
+            // rad_front: vec![Vec3::zero(); planes.num_planes()],
+            // rad_back: vec![Vec3::zero(); planes.num_planes()],
+            rad_front: RadBuffer::new(planes.num_planes()),
+            rad_back: RadBuffer::new(planes.num_planes()),
+
             ff: split_formfactors(setup_formfactors(&planes, &bitmap)),
             diffuse: vec![Vec3::new(1f32, 1f32, 1f32); planes.num_planes()],
             planes: planes,

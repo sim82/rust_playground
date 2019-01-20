@@ -232,11 +232,15 @@ impl RadWorker {
                 //     plane[3].color = color;
                 // }
 
+                // let old_cap = colors_buffer_pool.capacity();
                 let chunk = colors_buffer_pool
                     .chunk(colors_cpu.iter().map(|x| *x))
                     .unwrap();
+                // println!("size: {} -> {}", old_cap, colors_buffer_pool.capacity());
 
                 tx.send(chunk).unwrap();
+                // println!("send");
+
                 let d_time = last_stat.elapsed();
                 if d_time >= Duration::from_secs(1) {
                     let pintss = scene.pints as f64
@@ -513,6 +517,7 @@ impl RenderDelegate for CrystalRenderDelgate {
 
         if let Some(rad_worker) = &self.rad_worker {
             if let Ok(buf) = rad_worker.rx.try_recv() {
+                // println!("receive");
                 self.colors_buffer_gpu = Some(Arc::new(buf));
             }
         }
