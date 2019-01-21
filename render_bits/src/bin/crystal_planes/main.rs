@@ -210,9 +210,9 @@ impl RadWorker {
                 for (i, plane) in scene.planes.planes_iter().enumerate() {
                     for v in plane.vertices.iter() {
                         colors_cpu[*v as usize].color = (
-                            scene.rad_front[i].x,
-                            scene.rad_front[i].y,
-                            scene.rad_front[i].z,
+                            scene.rad_front.r[i],
+                            scene.rad_front.g[i],
+                            scene.rad_front.b[i],
                         );
                     }
                 }
@@ -313,6 +313,8 @@ impl RenderDelegate for CrystalRenderDelgate {
             planes.create_planes(&bm);
             // planes.print();
             scene = Scene::new(planes, bm);
+            // scene.print_stat();
+            // panic!("exit");
         }
 
         let future;

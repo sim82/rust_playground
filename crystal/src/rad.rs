@@ -268,12 +268,99 @@ impl RadBuffer {
     }
 }
 
+enum Block {
+    Single(u32, f32),
+    Vec2(u32, [f32; 2]),
+    Vec4(u32, [f32; 4]),
+}
+
+#[derive(Clone)]
+pub struct Blocklist {
+    single: Vec<(u32, f32)>,
+    vec2: Vec<(u32, [f32; 2])>,
+    vec4: Vec<(u32, [f32; 4])>,
+}
+
+impl Blocklist {
+    fn new(ff: &Vec<(u32, f32)>) -> Blocklist {
+        let max1 = ff.iter().map(|(i, _)| *i).max().unwrap_or(0);
+        let mut list1 = ff
+            .iter()
+            .map(|(i, ff)| (*i, (*i, *ff)))
+            .collect::<std::collections::HashMap<u32, (u32, f32)>>();
+
+        let mut list2 = std::collections::HashMap::new();
+        for i in 0..max1 + 1 {
+            if i % 2 != 0 {
+                continue;
+            }
+
+            let mut remove = false;
+            {
+                let v1 = list1.get(&i);
+                let v2 = list1.get(&(i + 1));
+
+                if let Some((i1, ff1)) = v1 {
+                    if let Some((_, ff2)) = v2 {
+                        list2.insert(*i1, (*i1, [*ff1, *ff2]));
+                        remove = true;
+                    }
+                }
+            }
+            if remove {
+                list1.remove(&i);
+                list1.remove(&(i + 1));
+            }
+        }
+
+        let mut list4 = Vec::new();
+        for i in 0..max1 + 1 {
+            if i % 4 != 0 {
+                continue;
+            }
+
+            let mut remove = false;
+            {
+                let v1 = list2.get(&i);
+                let v2 = list2.get(&(i + 2));
+
+                if let Some((i1, [ff1, ff2])) = v1 {
+                    if let Some((_, [ff3, ff4])) = v2 {
+                        list4.push((*i1, [*ff1, *ff2, *ff3, *ff4]));
+                        remove = true;
+                    }
+                }
+            }
+            if remove {
+                list2.remove(&i);
+                list2.remove(&(i + 2));
+            }
+        }
+
+        Blocklist {
+            single: list1.values().map(|x| *x).collect(),
+            vec2: list2.values().map(|x| *x).collect(),
+            vec4: list4,
+        }
+    }
+
+    fn print_stat(&self) {
+        println!(
+            "1: {} 2: {} 4: {}",
+            self.single.len(),
+            self.vec2.len(),
+            self.vec4.len()
+        );
+    }
+}
+
 pub struct Scene {
     pub planes: PlanesSep,
     pub bitmap: BlockMap,
     pub emit: Vec<Vec3>,
     // pub ff: Vec<(u32, u32, f32)>,
     pub ff: Vec<Vec<(u32, f32)>>,
+    pub blocks: Vec<Blocklist>,
     // pub rad_front: Vec<Vec3>,
     // pub rad_back: Vec<Vec3>,
     pub rad_front: RadBuffer,
@@ -288,14 +375,15 @@ fn vec_mul(v1: &Vec3, v2: &Vec3) -> Vec3 {
 
 impl Scene {
     pub fn new(planes: PlanesSep, bitmap: BlockMap) -> Self {
+        let formfactors = split_formfactors(setup_formfactors(&planes, &bitmap));
         Scene {
             emit: vec![Vec3::zero(); planes.num_planes()],
             // rad_front: vec![Vec3::zero(); planes.num_planes()],
             // rad_back: vec![Vec3::zero(); planes.num_planes()],
             rad_front: RadBuffer::new(planes.num_planes()),
             rad_back: RadBuffer::new(planes.num_planes()),
-
-            ff: split_formfactors(setup_formfactors(&planes, &bitmap)),
+            blocks: formfactors.iter().map(|x| Blocklist::new(x)).collect(),
+            ff: formfactors,
             diffuse: vec![Vec3::new(1f32, 1f32, 1f32); planes.num_planes()],
             planes: planes,
             bitmap: bitmap,
@@ -349,17 +437,42 @@ impl Scene {
         std::mem::swap(&mut self.rad_front, &mut self.rad_back);
 
         for (i, ff_i) in self.ff.iter().enumerate() {
-            let mut rad = Vec3::zero();
+            // let mut rad = Vec3::zero();
 
+            let mut rad_r = 0f32;
+            let mut rad_g = 0f32;
+            let mut rad_b = 0f32;
+            let diffuse = self.diffuse[i as usize];
+            let r = &self.rad_back.r[..];
+            let g = &self.rad_back.g[..];
+            let b = &self.rad_back.b[..];
             for (j, ff) in ff_i {
-                rad += vec_mul(
-                    &self.rad_back[*j as usize],
-                    &(*ff * self.diffuse[i as usize]),
-                );
+                // unsafe {
+                rad_r += r[*j as usize] * diffuse.x * *ff;
+                rad_g += g[*j as usize] * diffuse.y * *ff;
+                rad_b += b[*j as usize] * diffuse.z * *ff;
+                // }
             }
 
-            self.rad_front[i as usize] = self.emit[i as usize] + rad;
+            // self.rad_front[i as usize] = self.emit[i as usize] + rad;
+            self.rad_front.r[i as usize] = self.emit[i as usize].x + rad_r;
+            self.rad_front.g[i as usize] = self.emit[i as usize].y + rad_g;
+            self.rad_front.b[i as usize] = self.emit[i as usize].z + rad_b;
+
             self.pints += ff_i.len();
+        }
+    }
+
+    pub fn print_stat(&self) {
+        // println!("write blocks");
+        // let filename = "blocks.bin";
+        // // if let Ok(file) = std::fs::File::create(filename) {
+        //     bincode::serialize_into(BufWriter::new(file), &self.blocks.clone()).unwrap();
+        //     println!("wrote {}", filename);
+        // }
+
+        for blocklist in &self.blocks {
+            blocklist.print_stat();
         }
     }
 }
