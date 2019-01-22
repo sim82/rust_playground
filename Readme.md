@@ -7,7 +7,7 @@
 
 start with:
 ```
- RUSTFLAGS="-C target-feature=+sse3" cargo run --release --bin crystal_planes
+ RUSTFLAGS="-C target-feature=+avx" cargo run --release --bin crystal_planes
 ```
 ** without release mode it will be quite slow **
 

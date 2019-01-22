@@ -6,6 +6,7 @@ extern crate simd;
 
 use self::image::ImageBuffer;
 use self::serde::ser::{Serialize, SerializeStruct, Serializer};
+use self::simd::x86::avx::*;
 use self::simd::x86::sse3::*;
 #[allow(unused_imports)]
 use super::{Bitmap, BlockMap, DisplayWrap, Point3, Point3i, Vec3, Vec3i};
@@ -283,6 +284,7 @@ pub struct Blocklist {
     single: Vec<(u32, f32)>,
     vec2: Vec<(u32, [f32; 2])>,
     vec4: Vec<(u32, [f32; 4])>,
+    vec8: Vec<(u32, [f32; 8])>,
 }
 
 impl Serialize for Blocklist {
@@ -333,7 +335,7 @@ impl Blocklist {
             }
         }
 
-        let mut list4 = Vec::new();
+        let mut list4 = std::collections::HashMap::new();
         let keys = list2.keys().map(|x| *x).collect::<Vec<_>>();
         for i in keys {
             if i % 4 != 0 {
@@ -347,7 +349,7 @@ impl Blocklist {
 
                 if let Some((i1, [ff1, ff2])) = v1 {
                     if let Some((_, [ff3, ff4])) = v2 {
-                        list4.push((*i1, [*ff1, *ff2, *ff3, *ff4]));
+                        list4.insert(*i1, (*i1, [*ff1, *ff2, *ff3, *ff4]));
                         remove = true;
                     }
                 }
@@ -358,19 +360,46 @@ impl Blocklist {
             }
         }
 
+        let mut list8 = Vec::new();
+        let keys = list4.keys().map(|x| *x).collect::<Vec<_>>();
+        for i in keys {
+            if i % 8 != 0 {
+                continue;
+            }
+
+            let mut remove = false;
+            {
+                let v1 = list4.get(&i);
+                let v2 = list4.get(&(i + 4));
+
+                if let Some((i1, [ff1, ff2, ff3, ff4])) = v1 {
+                    if let Some((_, [ff5, ff6, ff7, ff8])) = v2 {
+                        list8.push((*i1, [*ff1, *ff2, *ff3, *ff4, *ff5, *ff6, *ff7, *ff8]));
+                        remove = true;
+                    }
+                }
+            }
+            if remove {
+                list4.remove(&i);
+                list4.remove(&(i + 4));
+            }
+        }
+
         Blocklist {
             single: list1.values().map(|x| *x).collect(),
             vec2: list2.values().map(|x| *x).collect(),
-            vec4: list4,
+            vec4: list4.values().map(|x| *x).collect(),
+            vec8: list8,
         }
     }
 
     fn print_stat(&self) {
         println!(
-            "1: {} 2: {} 4: {}",
+            "1: {} 2: {} 4: {} 8: {}",
             self.single.len(),
             self.vec2.len(),
-            self.vec4.len()
+            self.vec4.len(),
+            self.vec8.len(),
         );
     }
 }
@@ -508,9 +537,6 @@ impl Scene {
             let mut rad_g = 0f32;
             let mut rad_b = 0f32;
             let diffuse = self.diffuse[i as usize];
-            let vdiffuse_r = simd::f32x4::splat(diffuse.x);
-            let vdiffuse_g = simd::f32x4::splat(diffuse.y);
-            let vdiffuse_b = simd::f32x4::splat(diffuse.z);
 
             let r = &self.rad_back.r[..];
             let g = &self.rad_back.g[..];
@@ -536,43 +562,75 @@ impl Scene {
                 // }
             }
 
-            for (j, [ff1, ff2, ff3, ff4]) in &ff_i.vec4 {
+            let vdiffuse_r = simd::f32x4::splat(diffuse.x);
+            let vdiffuse_g = simd::f32x4::splat(diffuse.y);
+            let vdiffuse_b = simd::f32x4::splat(diffuse.z);
+            let vzero = simd::f32x4::splat(0f32);
+            for (j, ff) in &ff_i.vec4 {
                 // unsafe {
                 let j = *j as usize;
                 let vr = simd::f32x4::load(r, j);
                 let vg = simd::f32x4::load(g, j);
                 let vb = simd::f32x4::load(b, j);
-                let vff = simd::f32x4::new(*ff1, *ff2, *ff3, *ff4);
+                let vff = simd::f32x4::load(ff, 0);
 
                 let vr = vr * vdiffuse_r * vff;
                 let vg = vg * vdiffuse_g * vff;
                 let vb = vb * vdiffuse_b * vff;
 
-                let add_r = vr.hadd(vr).hadd(vr);
-                let add_g = vg.hadd(vg).hadd(vg);
-                let add_b = vb.hadd(vb).hadd(vb);
+                // let add_r = vr.hadd(vzero).hadd(vzero);
+                // let add_g = vg.hadd(vzero).hadd(vzero);
+                // let add_b = vb.hadd(vzero).hadd(vzero);
 
-                rad_r += add_r.extract(0);
-                rad_g += add_g.extract(0);
-                rad_b += add_b.extract(0);
+                // rad_r += add_r.extract(0);
+                // rad_g += add_g.extract(0);
+                // rad_b += add_b.extract(0);
 
-                // rad_r += r[*j as usize] * diffuse.x * *ff1;
-                // rad_g += g[*j as usize] * diffuse.y * *ff1;
-                // rad_b += b[*j as usize] * diffuse.z * *ff1;
+                let vr = vr.hadd(vr);
+                let vg = vg.hadd(vr);
+                let vb = vb.hadd(vr);
 
-                // rad_r += r[(*j + 1) as usize] * diffuse.x * *ff2;
-                // rad_g += g[(*j + 1) as usize] * diffuse.y * *ff2;
-                // rad_b += b[(*j + 1) as usize] * diffuse.z * *ff2;
+                let vr = vr.hadd(vr);
+                let vg = vg.hadd(vr);
+                let vb = vb.hadd(vr);
+                rad_r += vr.extract(0);
+                rad_g += vg.extract(0);
+                rad_b += vb.extract(0);
+            }
+            let vdiffuse_r = f32x8::splat(diffuse.x);
+            let vdiffuse_g = f32x8::splat(diffuse.y);
+            let vdiffuse_b = f32x8::splat(diffuse.z);
 
-                // rad_r += r[(*j + 2) as usize] * diffuse.x * *ff3;
-                // rad_g += g[(*j + 2) as usize] * diffuse.y * *ff3;
-                // rad_b += b[(*j + 2) as usize] * diffuse.z * *ff3;
+            let vzero = f32x8::splat(0f32);
+            for (j, ff) in &ff_i.vec8 {
+                // unsafe {
+                let j = *j as usize;
+                let vr = f32x8::load(r, j);
+                let vg = f32x8::load(g, j);
+                let vb = f32x8::load(b, j);
+                let vff = f32x8::load(ff, 0);
 
-                // rad_r += r[(*j + 3) as usize] * diffuse.x * *ff4;
-                // rad_g += g[(*j + 3) as usize] * diffuse.y * *ff4;
-                // rad_b += b[(*j + 3) as usize] * diffuse.z * *ff4;
+                let vr = vr * vdiffuse_r * vff;
+                let vg = vg * vdiffuse_g * vff;
+                let vb = vb * vdiffuse_b * vff;
 
-                // }
+                let vr = vr.hadd(vr);
+                let vg = vg.hadd(vg);
+                let vb = vb.hadd(vb);
+                let vr = vr.hadd(vr);
+                let vg = vg.hadd(vg);
+                let vb = vb.hadd(vb);
+                let vr = vr.hadd(vr);
+                let vg = vg.hadd(vg);
+                let vb = vb.hadd(vb);
+
+                // let add_r = vr.hadd(vr).hadd(vzero).hadd(vzero);
+                // let add_g = vg.hadd(vg).hadd(vzero).hadd(vzero);
+                // let add_b = vb.hadd(vb).hadd(vzero).hadd(vzero);
+
+                rad_r += vr.extract(0);
+                rad_g += vg.extract(0);
+                rad_b += vb.extract(0);
             }
 
             // self.rad_front[i as usize] = self.emit[i as usize] + rad;
@@ -580,7 +638,8 @@ impl Scene {
             self.rad_front.g[i as usize] = self.emit[i as usize].y + rad_g;
             self.rad_front.b[i as usize] = self.emit[i as usize].z + rad_b;
 
-            self.pints += ff_i.single.len() + ff_i.vec2.len() * 2 + ff_i.vec4.len() * 4;
+            self.pints +=
+                ff_i.single.len() + ff_i.vec2.len() * 2 + ff_i.vec4.len() * 4 + ff_i.vec8.len() * 8;
         }
     }
 
