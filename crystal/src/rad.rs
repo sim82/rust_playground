@@ -2,8 +2,11 @@ extern crate bincode;
 extern crate image;
 extern crate serde;
 extern crate serde_json;
+extern crate simd;
 
 use self::image::ImageBuffer;
+use self::serde::ser::{Serialize, SerializeStruct, Serializer};
+use self::simd::x86::sse3::*;
 #[allow(unused_imports)]
 use super::{Bitmap, BlockMap, DisplayWrap, Point3, Point3i, Vec3, Vec3i};
 use super::{Dir, Plane, PlanesSep};
@@ -11,6 +14,7 @@ use cgmath::prelude::*;
 use std::cmp::Ordering;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
+
 fn occluded(p0: Point3i, p1: Point3i, solid: &Bitmap) -> bool {
     // 3d bresenham, ripped from http://www.cobrabytes.com/index.php?topic=1150.0
 
@@ -281,6 +285,20 @@ pub struct Blocklist {
     vec4: Vec<(u32, [f32; 4])>,
 }
 
+impl Serialize for Blocklist {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // 3 is the number of fields in the struct.
+        let mut state = serializer.serialize_struct("Blocklist", 3)?;
+        state.serialize_field("s", &self.single)?;
+        state.serialize_field("v2", &self.vec2)?;
+        state.serialize_field("v4", &self.vec4)?;
+        state.end()
+    }
+}
+
 impl Blocklist {
     fn new(ff: &Vec<(u32, f32)>) -> Blocklist {
         let max1 = ff.iter().map(|(i, _)| *i).max().unwrap_or(0);
@@ -290,7 +308,9 @@ impl Blocklist {
             .collect::<std::collections::HashMap<u32, (u32, f32)>>();
 
         let mut list2 = std::collections::HashMap::new();
-        for i in 0..max1 + 1 {
+        let keys = list1.keys().map(|x| *x).collect::<Vec<_>>();
+
+        for i in keys {
             if i % 2 != 0 {
                 continue;
             }
@@ -314,7 +334,8 @@ impl Blocklist {
         }
 
         let mut list4 = Vec::new();
-        for i in 0..max1 + 1 {
+        let keys = list2.keys().map(|x| *x).collect::<Vec<_>>();
+        for i in keys {
             if i % 4 != 0 {
                 continue;
             }
@@ -376,13 +397,23 @@ fn vec_mul(v1: &Vec3, v2: &Vec3) -> Vec3 {
 impl Scene {
     pub fn new(planes: PlanesSep, bitmap: BlockMap) -> Self {
         let formfactors = split_formfactors(setup_formfactors(&planes, &bitmap));
+        let blocks = formfactors
+            .iter()
+            .map(|x| Blocklist::new(x))
+            .collect::<Vec<_>>();
+        let filename = "blocks.bin";
+        if let Ok(file) = std::fs::File::create(filename) {
+            bincode::serialize_into(BufWriter::new(file), &blocks).unwrap();
+            println!("wrote {}", filename);
+        }
+
         Scene {
             emit: vec![Vec3::zero(); planes.num_planes()],
             // rad_front: vec![Vec3::zero(); planes.num_planes()],
             // rad_back: vec![Vec3::zero(); planes.num_planes()],
             rad_front: RadBuffer::new(planes.num_planes()),
             rad_back: RadBuffer::new(planes.num_planes()),
-            blocks: formfactors.iter().map(|x| Blocklist::new(x)).collect(),
+            blocks: blocks,
             ff: formfactors,
             diffuse: vec![Vec3::new(1f32, 1f32, 1f32); planes.num_planes()],
             planes: planes,
@@ -434,23 +465,113 @@ impl Scene {
     }
 
     pub fn do_rad(&mut self) {
+        if true {
+            self.do_rad_blocks();
+        } else {
+            std::mem::swap(&mut self.rad_front, &mut self.rad_back);
+
+            for (i, ff_i) in self.ff.iter().enumerate() {
+                // let mut rad = Vec3::zero();
+
+                let mut rad_r = 0f32;
+                let mut rad_g = 0f32;
+                let mut rad_b = 0f32;
+                let diffuse = self.diffuse[i as usize];
+                let r = &self.rad_back.r[..];
+                let g = &self.rad_back.g[..];
+                let b = &self.rad_back.b[..];
+                for (j, ff) in ff_i {
+                    // unsafe {
+                    rad_r += r[*j as usize] * diffuse.x * *ff;
+                    rad_g += g[*j as usize] * diffuse.y * *ff;
+                    rad_b += b[*j as usize] * diffuse.z * *ff;
+                    // }
+                }
+
+                // self.rad_front[i as usize] = self.emit[i as usize] + rad;
+                self.rad_front.r[i as usize] = self.emit[i as usize].x + rad_r;
+                self.rad_front.g[i as usize] = self.emit[i as usize].y + rad_g;
+                self.rad_front.b[i as usize] = self.emit[i as usize].z + rad_b;
+
+                self.pints += ff_i.len();
+            }
+        }
+    }
+
+    pub fn do_rad_blocks(&mut self) {
         std::mem::swap(&mut self.rad_front, &mut self.rad_back);
 
-        for (i, ff_i) in self.ff.iter().enumerate() {
+        for (i, ff_i) in self.blocks.iter().enumerate() {
             // let mut rad = Vec3::zero();
 
             let mut rad_r = 0f32;
             let mut rad_g = 0f32;
             let mut rad_b = 0f32;
             let diffuse = self.diffuse[i as usize];
+            let vdiffuse_r = simd::f32x4::splat(diffuse.x);
+            let vdiffuse_g = simd::f32x4::splat(diffuse.y);
+            let vdiffuse_b = simd::f32x4::splat(diffuse.z);
+
             let r = &self.rad_back.r[..];
             let g = &self.rad_back.g[..];
             let b = &self.rad_back.b[..];
-            for (j, ff) in ff_i {
+            for (j, ff) in &ff_i.single {
                 // unsafe {
                 rad_r += r[*j as usize] * diffuse.x * *ff;
                 rad_g += g[*j as usize] * diffuse.y * *ff;
                 rad_b += b[*j as usize] * diffuse.z * *ff;
+                // }
+            }
+
+            for (j, [ff1, ff2]) in &ff_i.vec2 {
+                // unsafe {
+                rad_r += r[*j as usize] * diffuse.x * *ff1;
+                rad_g += g[*j as usize] * diffuse.y * *ff1;
+                rad_b += b[*j as usize] * diffuse.z * *ff1;
+
+                rad_r += r[(*j + 1) as usize] * diffuse.x * *ff2;
+                rad_g += g[(*j + 1) as usize] * diffuse.y * *ff2;
+                rad_b += b[(*j + 1) as usize] * diffuse.z * *ff2;
+
+                // }
+            }
+
+            for (j, [ff1, ff2, ff3, ff4]) in &ff_i.vec4 {
+                // unsafe {
+                let j = *j as usize;
+                let vr = simd::f32x4::load(r, j);
+                let vg = simd::f32x4::load(g, j);
+                let vb = simd::f32x4::load(b, j);
+                let vff = simd::f32x4::new(*ff1, *ff2, *ff3, *ff4);
+
+                let vr = vr * vdiffuse_r * vff;
+                let vg = vg * vdiffuse_g * vff;
+                let vb = vb * vdiffuse_b * vff;
+
+                let add_r = vr.hadd(vr).hadd(vr);
+                let add_g = vg.hadd(vg).hadd(vg);
+                let add_b = vb.hadd(vb).hadd(vb);
+
+                rad_r += add_r.extract(0);
+                rad_g += add_g.extract(0);
+                rad_b += add_b.extract(0);
+
+                // rad_r += r[*j as usize] * diffuse.x * *ff1;
+                // rad_g += g[*j as usize] * diffuse.y * *ff1;
+                // rad_b += b[*j as usize] * diffuse.z * *ff1;
+
+                // rad_r += r[(*j + 1) as usize] * diffuse.x * *ff2;
+                // rad_g += g[(*j + 1) as usize] * diffuse.y * *ff2;
+                // rad_b += b[(*j + 1) as usize] * diffuse.z * *ff2;
+
+                // rad_r += r[(*j + 2) as usize] * diffuse.x * *ff3;
+                // rad_g += g[(*j + 2) as usize] * diffuse.y * *ff3;
+                // rad_b += b[(*j + 2) as usize] * diffuse.z * *ff3;
+
+                // rad_r += r[(*j + 3) as usize] * diffuse.x * *ff4;
+                // rad_g += g[(*j + 3) as usize] * diffuse.y * *ff4;
+                // rad_b += b[(*j + 3) as usize] * diffuse.z * *ff4;
+
                 // }
             }
 
@@ -459,17 +580,12 @@ impl Scene {
             self.rad_front.g[i as usize] = self.emit[i as usize].y + rad_g;
             self.rad_front.b[i as usize] = self.emit[i as usize].z + rad_b;
 
-            self.pints += ff_i.len();
+            self.pints += ff_i.single.len() + ff_i.vec2.len() * 2 + ff_i.vec4.len() * 4;
         }
     }
 
     pub fn print_stat(&self) {
-        // println!("write blocks");
-        // let filename = "blocks.bin";
-        // // if let Ok(file) = std::fs::File::create(filename) {
-        //     bincode::serialize_into(BufWriter::new(file), &self.blocks.clone()).unwrap();
-        //     println!("wrote {}", filename);
-        // }
+        println!("write blocks");
 
         for blocklist in &self.blocks {
             blocklist.print_stat();

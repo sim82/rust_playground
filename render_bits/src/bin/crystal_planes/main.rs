@@ -32,7 +32,7 @@ use cgmath::{Matrix4, Rad, Vector3};
 
 use rand::prelude::*;
 use render_bits::{Normal, Vertex};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, sync_channel, Receiver, Sender};
 use std::thread::spawn;
 use std::thread::JoinHandle;
 
@@ -88,7 +88,7 @@ impl RadWorker {
         mut colors_cpu: Vec<Color>,
         rx_event: Receiver<GameEvent>,
     ) -> RadWorker {
-        let (tx, rx) = channel();
+        let (tx, rx) = sync_channel(2);
 
         let join_handle = spawn(move || {
             let mut light_pos = crystal::Point3::new(120f32, 32f32, 80f32);
@@ -231,14 +231,16 @@ impl RadWorker {
                 //     plane[2].color = color;
                 //     plane[3].color = color;
                 // }
-
+                // println!("size: {}", colors_cpu.len());
                 // let old_cap = colors_buffer_pool.capacity();
                 let chunk = colors_buffer_pool
                     .chunk(colors_cpu.iter().map(|x| *x))
                     .unwrap();
                 // println!("size: {} -> {}", old_cap, colors_buffer_pool.capacity());
 
-                tx.send(chunk).unwrap();
+                if tx.send(chunk).is_err() {
+                    println!("send failed.");
+                }
                 // println!("send");
 
                 let d_time = last_stat.elapsed();
@@ -389,6 +391,7 @@ impl RenderDelegate for CrystalRenderDelgate {
         tx.send(GameEvent::UpdateLightPos(self.light_pos.clone()))
             .unwrap(); // send initial update
 
+        // println!("send");
         self.tx_pos = Some(tx);
         self.rad_worker = Some(RadWorker::start(scene, colors_buffer_pool, colors_cpu, rx));
 
@@ -398,7 +401,10 @@ impl RenderDelegate for CrystalRenderDelgate {
         if let Some(tx_pos) = &self.tx_pos {
             tx_pos.send(GameEvent::Stop).unwrap();
         }
+
         if let Some(rad_worker) = self.rad_worker {
+            drop(rad_worker.rx); // unblock rad_worker if necessary
+
             print!("joining rad_worker ...");
             rad_worker.join_handle.join().unwrap();
             println!(" done");
