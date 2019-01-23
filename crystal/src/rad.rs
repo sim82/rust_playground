@@ -587,12 +587,12 @@ impl Scene {
                 // rad_b += add_b.extract(0);
 
                 let vr = vr.hadd(vr);
-                let vg = vg.hadd(vr);
-                let vb = vb.hadd(vr);
+                let vg = vg.hadd(vg);
+                let vb = vb.hadd(vb);
 
                 let vr = vr.hadd(vr);
-                let vg = vg.hadd(vr);
-                let vb = vb.hadd(vr);
+                let vg = vg.hadd(vg);
+                let vb = vb.hadd(vb);
                 rad_r += vr.extract(0);
                 rad_g += vg.extract(0);
                 rad_b += vb.extract(0);
