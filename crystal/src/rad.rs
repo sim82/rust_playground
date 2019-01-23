@@ -601,7 +601,7 @@ impl Scene {
             let vdiffuse_g = f32x8::splat(diffuse.y);
             let vdiffuse_b = f32x8::splat(diffuse.z);
 
-            let vzero = f32x8::splat(0f32);
+            let vzero = simd::f32x4::splat(0f32);
             for (j, ff) in &ff_i.vec8 {
                 // unsafe {
                 let j = *j as usize;
@@ -614,23 +614,27 @@ impl Scene {
                 let vg = vg * vdiffuse_g * vff;
                 let vb = vb * vdiffuse_b * vff;
 
-                let vr = vr.hadd(vr);
-                let vg = vg.hadd(vg);
-                let vb = vb.hadd(vb);
-                let vr = vr.hadd(vr);
-                let vg = vg.hadd(vg);
-                let vb = vb.hadd(vb);
-                let vr = vr.hadd(vr);
-                let vg = vg.hadd(vg);
-                let vb = vb.hadd(vb);
+                let vrh = vr.high();
+                let vrl = vr.low();
+                let vgh = vg.high();
+                let vgl = vg.low();
+                let vbh = vb.high();
+                let vbl = vb.low();
+                let sumr = vrh + vrl;
+                let sumg = vgh + vgl;
+                let sumb = vbh + vbl;
 
-                // let add_r = vr.hadd(vr).hadd(vzero).hadd(vzero);
-                // let add_g = vg.hadd(vg).hadd(vzero).hadd(vzero);
-                // let add_b = vb.hadd(vb).hadd(vzero).hadd(vzero);
+                let sumr = sumr.hadd(sumr);
+                let sumg = sumg.hadd(sumg);
+                let sumb = sumb.hadd(sumb);
 
-                rad_r += vr.extract(0);
-                rad_g += vg.extract(0);
-                rad_b += vb.extract(0);
+                let add_r = sumr.hadd(sumr);
+                let add_g = sumg.hadd(sumg);
+                let add_b = sumb.hadd(sumb);
+
+                rad_r += add_r.extract(0);
+                rad_g += add_g.extract(0);
+                rad_b += add_b.extract(0);
             }
 
             // self.rad_front[i as usize] = self.emit[i as usize] + rad;
