@@ -9,7 +9,9 @@ start with:
 ```
  RUSTFLAGS="-C target-feature=+avx" cargo run --release --bin crystal_planes
 ```
-** without release mode it will be quite slow **
+NOTE:
+* without release mode it will be unusable (especially without cached formfactors)
+* target-feature=+avx is necessary for the f32x8 simd kernel. No automatic fallback to scalar or sse3 (f32x4) kernel yet
 
 this should open a render window. 
 * Move around with WASD + mouse
