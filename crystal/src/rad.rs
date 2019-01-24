@@ -15,7 +15,7 @@ use cgmath::prelude::*;
 use std::cmp::Ordering;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
-
+use std::time::Instant;
 fn occluded(p0: Point3i, p1: Point3i, solid: &Bitmap) -> bool {
     // 3d bresenham, ripped from http://www.cobrabytes.com/index.php?topic=1150.0
 
@@ -528,6 +528,7 @@ impl Scene {
     }
 
     pub fn do_rad_blocks(&mut self) {
+        let start = Instant::now();
         std::mem::swap(&mut self.rad_front, &mut self.rad_back);
 
         for (i, ff_i) in self.blocks.iter().enumerate() {
@@ -566,6 +567,11 @@ impl Scene {
             let vdiffuse_g = simd::f32x4::splat(diffuse.y);
             let vdiffuse_b = simd::f32x4::splat(diffuse.z);
             let vzero = simd::f32x4::splat(0f32);
+
+            let mut vsum_r = simd::f32x4::splat(0f32);
+            let mut vsum_g = simd::f32x4::splat(0f32);
+            let mut vsum_b = simd::f32x4::splat(0f32);
+
             for (j, ff) in &ff_i.vec4 {
                 // unsafe {
                 let j = *j as usize;
@@ -574,9 +580,9 @@ impl Scene {
                 let vb = simd::f32x4::load(b, j);
                 let vff = simd::f32x4::load(ff, 0);
 
-                let vr = vr * vdiffuse_r * vff;
-                let vg = vg * vdiffuse_g * vff;
-                let vb = vb * vdiffuse_b * vff;
+                vsum_r = vsum_r + vr * vdiffuse_r * vff;
+                vsum_g = vsum_g + vg * vdiffuse_g * vff;
+                vsum_b = vsum_b + vb * vdiffuse_b * vff;
 
                 // let add_r = vr.hadd(vzero).hadd(vzero);
                 // let add_g = vg.hadd(vzero).hadd(vzero);
@@ -585,23 +591,28 @@ impl Scene {
                 // rad_r += add_r.extract(0);
                 // rad_g += add_g.extract(0);
                 // rad_b += add_b.extract(0);
-
-                let vr = vr.hadd(vr);
-                let vg = vg.hadd(vg);
-                let vb = vb.hadd(vb);
-
-                let vr = vr.hadd(vr);
-                let vg = vg.hadd(vg);
-                let vb = vb.hadd(vb);
-                rad_r += vr.extract(0);
-                rad_g += vg.extract(0);
-                rad_b += vb.extract(0);
             }
+            let vsum_r = vsum_r.hadd(vzero);
+            let vsum_g = vsum_g.hadd(vzero);
+            let vsum_b = vsum_b.hadd(vzero);
+
+            let vsum_r = vsum_r.hadd(vzero);
+            let vsum_g = vsum_g.hadd(vzero);
+            let vsum_b = vsum_b.hadd(vzero);
+            rad_r += vsum_r.extract(0);
+            rad_g += vsum_g.extract(0);
+            rad_b += vsum_b.extract(0);
+
             let vdiffuse_r = f32x8::splat(diffuse.x);
             let vdiffuse_g = f32x8::splat(diffuse.y);
             let vdiffuse_b = f32x8::splat(diffuse.z);
 
             let vzero = simd::f32x4::splat(0f32);
+
+            let mut vsum_r = f32x8::splat(0f32);
+            let mut vsum_g = f32x8::splat(0f32);
+            let mut vsum_b = f32x8::splat(0f32);
+
             for (j, ff) in &ff_i.vec8 {
                 // unsafe {
                 let j = *j as usize;
@@ -610,32 +621,26 @@ impl Scene {
                 let vb = f32x8::load(b, j);
                 let vff = f32x8::load(ff, 0);
 
-                let vr = vr * vdiffuse_r * vff;
-                let vg = vg * vdiffuse_g * vff;
-                let vb = vb * vdiffuse_b * vff;
-
-                let vrh = vr.high();
-                let vrl = vr.low();
-                let vgh = vg.high();
-                let vgl = vg.low();
-                let vbh = vb.high();
-                let vbl = vb.low();
-                let sumr = vrh + vrl;
-                let sumg = vgh + vgl;
-                let sumb = vbh + vbl;
-
-                let sumr = sumr.hadd(sumr);
-                let sumg = sumg.hadd(sumg);
-                let sumb = sumb.hadd(sumb);
-
-                let add_r = sumr.hadd(sumr);
-                let add_g = sumg.hadd(sumg);
-                let add_b = sumb.hadd(sumb);
-
-                rad_r += add_r.extract(0);
-                rad_g += add_g.extract(0);
-                rad_b += add_b.extract(0);
+                vsum_r = vsum_r + vr * vdiffuse_r * vff;
+                vsum_g = vsum_g + vg * vdiffuse_g * vff;
+                vsum_b = vsum_b + vb * vdiffuse_b * vff;
             }
+
+            let sumr = vsum_r.high() + vsum_r.low();
+            let sumg = vsum_g.high() + vsum_g.low();
+            let sumb = vsum_b.high() + vsum_b.low();
+
+            let sumr = sumr.hadd(vzero);
+            let sumg = sumg.hadd(vzero);
+            let sumb = sumb.hadd(vzero);
+
+            let add_r = sumr.hadd(vzero);
+            let add_g = sumg.hadd(vzero);
+            let add_b = sumb.hadd(vzero);
+
+            rad_r += add_r.extract(0);
+            rad_g += add_g.extract(0);
+            rad_b += add_b.extract(0);
 
             // self.rad_front[i as usize] = self.emit[i as usize] + rad;
             self.rad_front.r[i as usize] = self.emit[i as usize].x + rad_r;
@@ -645,6 +650,7 @@ impl Scene {
             self.pints +=
                 ff_i.single.len() + ff_i.vec2.len() * 2 + ff_i.vec4.len() * 4 + ff_i.vec8.len() * 8;
         }
+        // println!("elapsed {:?}", start.elapsed());
     }
 
     pub fn print_stat(&self) {
