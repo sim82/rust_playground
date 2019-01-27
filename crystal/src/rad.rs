@@ -260,19 +260,40 @@ pub struct RadBuffer {
 }
 
 impl RadBuffer {
-    fn new(size: usize) -> RadBuffer {
-        RadBuffer {
-            r: vec![0f32; size],
-            g: vec![0f32; size],
-            b: vec![0f32; size],
+    /// Utility for making specifically aligned vectors
+    pub fn aligned_vector<T>(len: usize, align: usize) -> Vec<T> {
+        let t_size = std::mem::size_of::<T>();
+        let t_align = std::mem::align_of::<T>();
+        let layout = if t_align >= align {
+            std::alloc::Layout::from_size_align(t_size * len, t_align).unwrap()
+        } else {
+            std::alloc::Layout::from_size_align(t_size * len, align).unwrap()
+        };
+        unsafe {
+            let mem = std::alloc::alloc(layout);
+            assert_eq!((mem as usize) % 16, 0);
+            Vec::<T>::from_raw_parts(mem as *mut T, len, len)
         }
     }
-}
 
-enum Block {
-    Single(u32, f32),
-    Vec2(u32, [f32; 2]),
-    Vec4(u32, [f32; 4]),
+    pub fn aligned_vector_init<T: Copy>(len: usize, align: usize, init: T) -> Vec<T> {
+        let mut v = Self::aligned_vector::<T>(len, align);
+        for x in v.iter_mut() {
+            *x = init;
+        }
+        v
+    }
+
+    fn new(size: usize) -> RadBuffer {
+        RadBuffer {
+            // r: vec![0f32; size],
+            // g: vec![0f32; size],
+            // b: vec![0f32; size],
+            r: Self::aligned_vector_init(size, 64, 0f32),
+            g: Self::aligned_vector_init(size, 64, 0f32),
+            b: Self::aligned_vector_init(size, 64, 0f32),
+        }
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -284,10 +305,17 @@ pub struct Blocklist {
     vec16: Vec<(u32, [f32; 16])>,
 }
 
+// pub struct Blockslices<'a> {
+//     single: Vec<(&'a f32, &'a f32, &'a f32, f32)>,
+//     vec2: Vec<(&'a [f32; 2], &'a [f32; 2], &'a [f32; 2], [f32; 2])>,
+//     vec4: Vec<(&'a [f32; 4], &'a [f32; 4], &'a [f32; 4], [f32; 4])>,
+//     vec8: Vec<(&'a [f32; 8], &'a [f32; 8], &'a [f32; 8], [f32; 8])>,
+//     vec16: Vec<(&'a [f32; 16], &'a [f32; 16], &'a [f32; 16], [f32; 16])>,
+// }
+
 impl Blocklist {
     fn new(ff: &Vec<(u32, f32)>) -> Blocklist {
         // TODO: this crap can be done in a single scan over ff...
-        let max1 = ff.iter().map(|(i, _)| *i).max().unwrap_or(0);
         let mut list1 = ff
             .iter()
             .map(|(i, ff)| (*i, (*i, *ff)))
@@ -420,6 +448,10 @@ impl Blocklist {
     }
 }
 
+// impl Blockslices {
+//     fn new(blocklist: &Blocklist, radbuf: &RadBuffer) -> blockslices {}
+// }
+
 pub struct Scene {
     pub planes: PlanesSep,
     pub bitmap: BlockMap,
@@ -543,15 +575,28 @@ impl Scene {
         }
     }
 
+    // pub fn do_rad_blocks(&mut self) {
+    //     std::mem::swap(&mut self.rad_front, &mut self.rad_back);
+    //     // self.rad_front.copy
+    //     let mut front = RadBuffer::new(0);
+    //     std::mem::swap(&mut self.rad_front, &mut front);
+
+    //     self.pints += self.do_rad_blocks_sub(&self.rad_back, &mut front, &self.blocks);
+    //     std::mem::swap(&mut self.rad_front, &mut front);
+    // }
+
     pub fn do_rad_blocks(&mut self) {
         std::mem::swap(&mut self.rad_front, &mut self.rad_back);
         // self.rad_front.copy
+
+        assert!(self.rad_front.r.len() == self.ff.len());
         let mut front = RadBuffer::new(0);
         std::mem::swap(&mut self.rad_front, &mut front);
 
         self.pints += self.do_rad_blocks_sub(&self.rad_back, &mut front, &self.blocks);
         std::mem::swap(&mut self.rad_front, &mut front);
     }
+
     pub fn do_rad_blocks_sub(
         &self,
         src: &RadBuffer,
@@ -571,9 +616,11 @@ impl Scene {
             let g = &src.g[..];
             let b = &src.b[..];
             for (j, ff) in &ff_i.single {
-                rad_r += r[*j as usize] * diffuse.x * *ff;
-                rad_g += g[*j as usize] * diffuse.y * *ff;
-                rad_b += b[*j as usize] * diffuse.z * *ff;
+                unsafe {
+                    rad_r += r.get_unchecked(*j as usize) * diffuse.x * *ff;
+                    rad_g += g.get_unchecked(*j as usize) * diffuse.y * *ff;
+                    rad_b += b.get_unchecked(*j as usize) * diffuse.z * *ff;
+                }
             }
 
             let vdiffuse_r = f32x2::splat(diffuse.x);
@@ -585,17 +632,22 @@ impl Scene {
 
             for (j, ff) in &ff_i.vec2 {
                 let j = *j as usize;
+                let jrange = j..j + 2;
                 unsafe {
-                    let vr = f32x2::from_slice_unaligned_unchecked(&r[j..]);
-                    let vg = f32x2::from_slice_unaligned_unchecked(&g[j..]);
-                    let vb = f32x2::from_slice_unaligned_unchecked(&b[j..]);
                     let vff = f32x2::from_slice_unaligned_unchecked(ff);
+                    let vr = f32x2::from_slice_aligned_unchecked(r.get_unchecked(jrange.clone()));
+                    let vg = f32x2::from_slice_aligned_unchecked(g.get_unchecked(jrange.clone()));
+                    let vb = f32x2::from_slice_aligned_unchecked(b.get_unchecked(jrange.clone()));
 
-                    vsum_r += vr * vdiffuse_r * vff;
-                    vsum_g += vg * vdiffuse_g * vff;
-                    vsum_b += vb * vdiffuse_b * vff;
+                    vsum_r += vdiffuse_r * vff * vr;
+                    vsum_g += vdiffuse_g * vff * vg;
+                    vsum_b += vdiffuse_b * vff * vb;
                 }
             }
+
+            rad_r += vsum_r.sum();
+            rad_g += vsum_g.sum();
+            rad_b += vsum_b.sum();
 
             let vdiffuse_r = f32x4::splat(diffuse.x);
             let vdiffuse_g = f32x4::splat(diffuse.y);
@@ -608,15 +660,16 @@ impl Scene {
             for (j, ff) in &ff_i.vec4 {
                 // unsafe {
                 let j = *j as usize;
+                let jrange = j..j + 4;
                 unsafe {
-                    let vr = f32x4::from_slice_unaligned_unchecked(&r[j..]);
-                    let vg = f32x4::from_slice_unaligned_unchecked(&g[j..]);
-                    let vb = f32x4::from_slice_unaligned_unchecked(&b[j..]);
                     let vff = f32x4::from_slice_unaligned_unchecked(ff);
+                    let vr = f32x4::from_slice_aligned_unchecked(r.get_unchecked(jrange.clone()));
+                    let vg = f32x4::from_slice_aligned_unchecked(g.get_unchecked(jrange.clone()));
+                    let vb = f32x4::from_slice_aligned_unchecked(b.get_unchecked(jrange.clone()));
 
-                    vsum_r += vr * vdiffuse_r * vff;
-                    vsum_g += vg * vdiffuse_g * vff;
-                    vsum_b += vb * vdiffuse_b * vff;
+                    vsum_r += vdiffuse_r * vff * vr;
+                    vsum_g += vdiffuse_g * vff * vg;
+                    vsum_b += vdiffuse_b * vff * vb;
                 }
             }
             rad_r += vsum_r.sum();
@@ -634,12 +687,12 @@ impl Scene {
             for (j, ff) in &ff_i.vec8 {
                 // unsafe {
                 let j = *j as usize;
+                let jrange = j..j + 8;
                 unsafe {
                     let vff = f32x8::from_slice_unaligned_unchecked(ff);
-
-                    let vr = f32x8::from_slice_unaligned_unchecked(&r[j..]);
-                    let vg = f32x8::from_slice_unaligned_unchecked(&g[j..]);
-                    let vb = f32x8::from_slice_unaligned_unchecked(&b[j..]);
+                    let vr = f32x8::from_slice_aligned_unchecked(r.get_unchecked(jrange.clone()));
+                    let vg = f32x8::from_slice_aligned_unchecked(g.get_unchecked(jrange.clone()));
+                    let vb = f32x8::from_slice_aligned_unchecked(b.get_unchecked(jrange.clone()));
 
                     vsum_r += vdiffuse_r * vff * vr;
                     vsum_g += vdiffuse_g * vff * vg;
@@ -661,11 +714,12 @@ impl Scene {
             for (j, ff) in &ff_i.vec16 {
                 // unsafe {
                 let j = *j as usize;
+                let jrange = j..j + 16;
                 unsafe {
                     let vff = f32x16::from_slice_unaligned_unchecked(ff);
-                    let vr = f32x16::from_slice_unaligned_unchecked(r.get_unchecked(j..j + 16));
-                    let vg = f32x16::from_slice_unaligned_unchecked(g.get_unchecked(j..j + 16));
-                    let vb = f32x16::from_slice_unaligned_unchecked(b.get_unchecked(j..j + 16));
+                    let vr = f32x16::from_slice_aligned_unchecked(r.get_unchecked(jrange.clone()));
+                    let vg = f32x16::from_slice_aligned_unchecked(g.get_unchecked(jrange.clone()));
+                    let vb = f32x16::from_slice_aligned_unchecked(b.get_unchecked(jrange.clone()));
 
                     vsum_r += vdiffuse_r * vff * vr;
                     vsum_g += vdiffuse_g * vff * vg;

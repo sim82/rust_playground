@@ -203,7 +203,7 @@ impl RadWorker {
                 }
 
                 if light_update {
-                    scene.apply_light(light_pos, Vec3::new(1f32, 1f32, 1f32));
+                    scene.apply_light(light_pos, Vec3::new(1f32, 0.8f32, 0.6f32));
                     light_update = false;
                 }
                 scene.do_rad();
@@ -656,6 +656,10 @@ impl RenderDelegate for CrystalRenderDelgate {
 }
 
 fn main() {
+    unsafe {
+        // don't need / want denormals -> flush to zero
+        core::arch::x86_64::_MM_SET_FLUSH_ZERO_MODE(core::arch::x86_64::_MM_FLUSH_ZERO_ON);
+    }
     let mut delegate = CrystalRenderDelgate::new();
 
     render_bits::render_test(&mut delegate);
