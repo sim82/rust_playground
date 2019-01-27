@@ -6,7 +6,7 @@ use serde::ser::{Serialize, SerializeStruct, Serializer};
 use super::{Bitmap, BlockMap, DisplayWrap, Point3, Point3i, Vec3, Vec3i};
 use super::{Dir, Plane, PlanesSep};
 use cgmath::prelude::*;
-use packed_simd::{f32x16, f32x4, f32x8};
+use packed_simd::{f32x16, f32x2, f32x4, f32x8};
 
 use std::cmp::Ordering;
 use std::fs::File;
@@ -579,23 +579,30 @@ impl Scene {
                 // }
             }
 
-            for (j, [ff1, ff2]) in &ff_i.vec2 {
-                // unsafe {
-                rad_r += r[*j as usize] * diffuse.x * *ff1;
-                rad_g += g[*j as usize] * diffuse.y * *ff1;
-                rad_b += b[*j as usize] * diffuse.z * *ff1;
+            let vdiffuse_r = f32x2::splat(diffuse.x);
+            let vdiffuse_g = f32x2::splat(diffuse.y);
+            let vdiffuse_b = f32x2::splat(diffuse.z);
+            let mut vsum_r = f32x2::splat(0f32);
+            let mut vsum_g = f32x2::splat(0f32);
+            let mut vsum_b = f32x2::splat(0f32);
 
-                rad_r += r[(*j + 1) as usize] * diffuse.x * *ff2;
-                rad_g += g[(*j + 1) as usize] * diffuse.y * *ff2;
-                rad_b += b[(*j + 1) as usize] * diffuse.z * *ff2;
+            for (j, ff) in &ff_i.vec2 {
+                let j = *j as usize;
+                unsafe {
+                    let vr = f32x2::from_slice_unaligned_unchecked(&r[j..]);
+                    let vg = f32x2::from_slice_unaligned_unchecked(&g[j..]);
+                    let vb = f32x2::from_slice_unaligned_unchecked(&b[j..]);
+                    let vff = f32x2::from_slice_unaligned_unchecked(ff);
 
-                // }
+                    vsum_r = vsum_r + vr * vdiffuse_r * vff;
+                    vsum_g = vsum_g + vg * vdiffuse_g * vff;
+                    vsum_b = vsum_b + vb * vdiffuse_b * vff;
+                }
             }
 
             let vdiffuse_r = f32x4::splat(diffuse.x);
             let vdiffuse_g = f32x4::splat(diffuse.y);
             let vdiffuse_b = f32x4::splat(diffuse.z);
-            let vzero = f32x4::splat(0f32);
 
             let mut vsum_r = f32x4::splat(0f32);
             let mut vsum_g = f32x4::splat(0f32);
@@ -604,14 +611,16 @@ impl Scene {
             for (j, ff) in &ff_i.vec4 {
                 // unsafe {
                 let j = *j as usize;
-                let vr = f32x4::from_slice_unaligned(&r[j..]);
-                let vg = f32x4::from_slice_unaligned(&g[j..]);
-                let vb = f32x4::from_slice_unaligned(&b[j..]);
-                let vff = f32x4::from_slice_unaligned(ff);
+                unsafe {
+                    let vr = f32x4::from_slice_unaligned_unchecked(&r[j..]);
+                    let vg = f32x4::from_slice_unaligned_unchecked(&g[j..]);
+                    let vb = f32x4::from_slice_unaligned_unchecked(&b[j..]);
+                    let vff = f32x4::from_slice_unaligned_unchecked(ff);
 
-                vsum_r = vsum_r + vr * vdiffuse_r * vff;
-                vsum_g = vsum_g + vg * vdiffuse_g * vff;
-                vsum_b = vsum_b + vb * vdiffuse_b * vff;
+                    vsum_r = vsum_r + vr * vdiffuse_r * vff;
+                    vsum_g = vsum_g + vg * vdiffuse_g * vff;
+                    vsum_b = vsum_b + vb * vdiffuse_b * vff;
+                }
             }
             rad_r += vsum_r.sum();
             rad_g += vsum_g.sum();
@@ -628,14 +637,16 @@ impl Scene {
             for (j, ff) in &ff_i.vec8 {
                 // unsafe {
                 let j = *j as usize;
-                let vr = f32x8::from_slice_unaligned(&r[j..]);
-                let vg = f32x8::from_slice_unaligned(&g[j..]);
-                let vb = f32x8::from_slice_unaligned(&b[j..]);
-                let vff = f32x8::from_slice_unaligned(ff);
+                unsafe {
+                    let vr = f32x8::from_slice_unaligned_unchecked(&r[j..]);
+                    let vg = f32x8::from_slice_unaligned_unchecked(&g[j..]);
+                    let vb = f32x8::from_slice_unaligned_unchecked(&b[j..]);
+                    let vff = f32x8::from_slice_unaligned_unchecked(ff);
 
-                vsum_r = vsum_r + vr * vdiffuse_r * vff;
-                vsum_g = vsum_g + vg * vdiffuse_g * vff;
-                vsum_b = vsum_b + vb * vdiffuse_b * vff;
+                    vsum_r = vsum_r + vr * vdiffuse_r * vff;
+                    vsum_g = vsum_g + vg * vdiffuse_g * vff;
+                    vsum_b = vsum_b + vb * vdiffuse_b * vff;
+                }
             }
             rad_r += vsum_r.sum();
             rad_g += vsum_g.sum();
@@ -652,14 +663,16 @@ impl Scene {
             for (j, ff) in &ff_i.vec16 {
                 // unsafe {
                 let j = *j as usize;
-                let vr = f32x16::from_slice_unaligned(&r[j..]);
-                let vg = f32x16::from_slice_unaligned(&g[j..]);
-                let vb = f32x16::from_slice_unaligned(&b[j..]);
-                let vff = f32x16::from_slice_unaligned(ff);
+                unsafe {
+                    let vr = f32x16::from_slice_unaligned_unchecked(&r[j..]);
+                    let vg = f32x16::from_slice_unaligned_unchecked(&g[j..]);
+                    let vb = f32x16::from_slice_unaligned_unchecked(&b[j..]);
+                    let vff = f32x16::from_slice_unaligned_unchecked(ff);
 
-                vsum_r = vsum_r + vr * vdiffuse_r * vff;
-                vsum_g = vsum_g + vg * vdiffuse_g * vff;
-                vsum_b = vsum_b + vb * vdiffuse_b * vff;
+                    vsum_r = vsum_r + vr * vdiffuse_r * vff;
+                    vsum_g = vsum_g + vg * vdiffuse_g * vff;
+                    vsum_b = vsum_b + vb * vdiffuse_b * vff;
+                }
             }
             rad_r += vsum_r.sum();
             rad_g += vsum_g.sum();
@@ -670,8 +683,11 @@ impl Scene {
             self.rad_front.g[i as usize] = self.emit[i as usize].y + rad_g;
             self.rad_front.b[i as usize] = self.emit[i as usize].z + rad_b;
 
-            self.pints +=
-                ff_i.single.len() + ff_i.vec2.len() * 2 + ff_i.vec4.len() * 4 + ff_i.vec8.len() * 8;
+            self.pints += ff_i.single.len()
+                + ff_i.vec2.len() * 2
+                + ff_i.vec4.len() * 4
+                + ff_i.vec8.len() * 8
+                + ff_i.vec16.len() * 16;
         }
         // println!("elapsed {:?}", start.elapsed());
     }
