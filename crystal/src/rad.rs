@@ -284,22 +284,9 @@ pub struct Blocklist {
     vec16: Vec<(u32, [f32; 16])>,
 }
 
-// impl Serialize for Blocklist {
-//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-//     where
-//         S: Serializer,
-//     {
-//         // 3 is the number of fields in the struct.
-//         let mut state = serializer.serialize_struct("Blocklist", 3)?;
-//         state.serialize_field("s", &self.single)?;
-//         state.serialize_field("v2", &self.vec2)?;
-//         state.serialize_field("v4", &self.vec4)?;
-//         state.end()
-//     }
-// }
-
 impl Blocklist {
     fn new(ff: &Vec<(u32, f32)>) -> Blocklist {
+        // TODO: this crap can be done in a single scan over ff...
         let max1 = ff.iter().map(|(i, _)| *i).max().unwrap_or(0);
         let mut list1 = ff
             .iter()
@@ -557,10 +544,22 @@ impl Scene {
     }
 
     pub fn do_rad_blocks(&mut self) {
-        let start = Instant::now();
         std::mem::swap(&mut self.rad_front, &mut self.rad_back);
+        // self.rad_front.copy
+        let mut front = RadBuffer::new(0);
+        std::mem::swap(&mut self.rad_front, &mut front);
 
-        for (i, ff_i) in self.blocks.iter().enumerate() {
+        self.pints += self.do_rad_blocks_sub(&self.rad_back, &mut front, &self.blocks);
+        std::mem::swap(&mut self.rad_front, &mut front);
+    }
+    pub fn do_rad_blocks_sub(
+        &self,
+        src: &RadBuffer,
+        dest: &mut RadBuffer,
+        blocks: &Vec<Blocklist>,
+    ) -> usize {
+        let mut pints: usize = 0;
+        for (i, ff_i) in blocks.iter().enumerate() {
             // let mut rad = Vec3::zero();
 
             let mut rad_r = 0f32;
@@ -568,15 +567,13 @@ impl Scene {
             let mut rad_b = 0f32;
             let diffuse = self.diffuse[i as usize];
 
-            let r = &self.rad_back.r[..];
-            let g = &self.rad_back.g[..];
-            let b = &self.rad_back.b[..];
+            let r = &src.r[..];
+            let g = &src.g[..];
+            let b = &src.b[..];
             for (j, ff) in &ff_i.single {
-                // unsafe {
                 rad_r += r[*j as usize] * diffuse.x * *ff;
                 rad_g += g[*j as usize] * diffuse.y * *ff;
                 rad_b += b[*j as usize] * diffuse.z * *ff;
-                // }
             }
 
             let vdiffuse_r = f32x2::splat(diffuse.x);
@@ -594,9 +591,9 @@ impl Scene {
                     let vb = f32x2::from_slice_unaligned_unchecked(&b[j..]);
                     let vff = f32x2::from_slice_unaligned_unchecked(ff);
 
-                    vsum_r = vsum_r + vr * vdiffuse_r * vff;
-                    vsum_g = vsum_g + vg * vdiffuse_g * vff;
-                    vsum_b = vsum_b + vb * vdiffuse_b * vff;
+                    vsum_r += vr * vdiffuse_r * vff;
+                    vsum_g += vg * vdiffuse_g * vff;
+                    vsum_b += vb * vdiffuse_b * vff;
                 }
             }
 
@@ -617,9 +614,9 @@ impl Scene {
                     let vb = f32x4::from_slice_unaligned_unchecked(&b[j..]);
                     let vff = f32x4::from_slice_unaligned_unchecked(ff);
 
-                    vsum_r = vsum_r + vr * vdiffuse_r * vff;
-                    vsum_g = vsum_g + vg * vdiffuse_g * vff;
-                    vsum_b = vsum_b + vb * vdiffuse_b * vff;
+                    vsum_r += vr * vdiffuse_r * vff;
+                    vsum_g += vg * vdiffuse_g * vff;
+                    vsum_b += vb * vdiffuse_b * vff;
                 }
             }
             rad_r += vsum_r.sum();
@@ -638,14 +635,15 @@ impl Scene {
                 // unsafe {
                 let j = *j as usize;
                 unsafe {
+                    let vff = f32x8::from_slice_unaligned_unchecked(ff);
+
                     let vr = f32x8::from_slice_unaligned_unchecked(&r[j..]);
                     let vg = f32x8::from_slice_unaligned_unchecked(&g[j..]);
                     let vb = f32x8::from_slice_unaligned_unchecked(&b[j..]);
-                    let vff = f32x8::from_slice_unaligned_unchecked(ff);
 
-                    vsum_r = vsum_r + vr * vdiffuse_r * vff;
-                    vsum_g = vsum_g + vg * vdiffuse_g * vff;
-                    vsum_b = vsum_b + vb * vdiffuse_b * vff;
+                    vsum_r += vdiffuse_r * vff * vr;
+                    vsum_g += vdiffuse_g * vff * vg;
+                    vsum_b += vdiffuse_b * vff * vb;
                 }
             }
             rad_r += vsum_r.sum();
@@ -664,32 +662,31 @@ impl Scene {
                 // unsafe {
                 let j = *j as usize;
                 unsafe {
-                    let vr = f32x16::from_slice_unaligned_unchecked(&r[j..]);
-                    let vg = f32x16::from_slice_unaligned_unchecked(&g[j..]);
-                    let vb = f32x16::from_slice_unaligned_unchecked(&b[j..]);
                     let vff = f32x16::from_slice_unaligned_unchecked(ff);
+                    let vr = f32x16::from_slice_unaligned_unchecked(r.get_unchecked(j..j + 16));
+                    let vg = f32x16::from_slice_unaligned_unchecked(g.get_unchecked(j..j + 16));
+                    let vb = f32x16::from_slice_unaligned_unchecked(b.get_unchecked(j..j + 16));
 
-                    vsum_r = vsum_r + vr * vdiffuse_r * vff;
-                    vsum_g = vsum_g + vg * vdiffuse_g * vff;
-                    vsum_b = vsum_b + vb * vdiffuse_b * vff;
+                    vsum_r += vdiffuse_r * vff * vr;
+                    vsum_g += vdiffuse_g * vff * vg;
+                    vsum_b += vdiffuse_b * vff * vb;
                 }
             }
             rad_r += vsum_r.sum();
             rad_g += vsum_g.sum();
             rad_b += vsum_b.sum();
 
-            // self.rad_front[i as usize] = self.emit[i as usize] + rad;
-            self.rad_front.r[i as usize] = self.emit[i as usize].x + rad_r;
-            self.rad_front.g[i as usize] = self.emit[i as usize].y + rad_g;
-            self.rad_front.b[i as usize] = self.emit[i as usize].z + rad_b;
+            dest.r[i as usize] = self.emit[i as usize].x + rad_r;
+            dest.g[i as usize] = self.emit[i as usize].y + rad_g;
+            dest.b[i as usize] = self.emit[i as usize].z + rad_b;
 
-            self.pints += ff_i.single.len()
+            pints += ff_i.single.len()
                 + ff_i.vec2.len() * 2
                 + ff_i.vec4.len() * 4
                 + ff_i.vec8.len() * 8
                 + ff_i.vec16.len() * 16;
         }
-        // println!("elapsed {:?}", start.elapsed());
+        pints
     }
 
     pub fn print_stat(&self) {
