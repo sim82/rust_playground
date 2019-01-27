@@ -1,5 +1,12 @@
 extern crate cgmath;
 extern crate ndarray;
+#[macro_use]
+extern crate serde_derive;
+extern crate bincode;
+extern crate image;
+extern crate packed_simd;
+extern crate serde;
+extern crate serde_json;
 
 use cgmath::prelude::*;
 use std::fs::File;

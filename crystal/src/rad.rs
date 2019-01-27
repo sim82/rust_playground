@@ -1,17 +1,13 @@
-extern crate bincode;
-extern crate image;
-extern crate serde;
-extern crate serde_json;
-extern crate simd;
-
-use self::image::ImageBuffer;
-use self::serde::ser::{Serialize, SerializeStruct, Serializer};
-use self::simd::x86::avx::*;
-use self::simd::x86::sse3::*;
+use image::ImageBuffer;
+use serde::ser::{Serialize, SerializeStruct, Serializer};
+// use self::simd::x86::avx::*;
+// use self::simd::x86::sse3::*;
 #[allow(unused_imports)]
 use super::{Bitmap, BlockMap, DisplayWrap, Point3, Point3i, Vec3, Vec3i};
 use super::{Dir, Plane, PlanesSep};
 use cgmath::prelude::*;
+use packed_simd::{f32x4, f32x8};
+
 use std::cmp::Ordering;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
@@ -279,7 +275,7 @@ enum Block {
     Vec4(u32, [f32; 4]),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub struct Blocklist {
     single: Vec<(u32, f32)>,
     vec2: Vec<(u32, [f32; 2])>,
@@ -287,19 +283,19 @@ pub struct Blocklist {
     vec8: Vec<(u32, [f32; 8])>,
 }
 
-impl Serialize for Blocklist {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // 3 is the number of fields in the struct.
-        let mut state = serializer.serialize_struct("Blocklist", 3)?;
-        state.serialize_field("s", &self.single)?;
-        state.serialize_field("v2", &self.vec2)?;
-        state.serialize_field("v4", &self.vec4)?;
-        state.end()
-    }
-}
+// impl Serialize for Blocklist {
+//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+//     where
+//         S: Serializer,
+//     {
+//         // 3 is the number of fields in the struct.
+//         let mut state = serializer.serialize_struct("Blocklist", 3)?;
+//         state.serialize_field("s", &self.single)?;
+//         state.serialize_field("v2", &self.vec2)?;
+//         state.serialize_field("v4", &self.vec4)?;
+//         state.end()
+//     }
+// }
 
 impl Blocklist {
     fn new(ff: &Vec<(u32, f32)>) -> Blocklist {
@@ -563,22 +559,22 @@ impl Scene {
                 // }
             }
 
-            let vdiffuse_r = simd::f32x4::splat(diffuse.x);
-            let vdiffuse_g = simd::f32x4::splat(diffuse.y);
-            let vdiffuse_b = simd::f32x4::splat(diffuse.z);
-            let vzero = simd::f32x4::splat(0f32);
+            let vdiffuse_r = f32x4::splat(diffuse.x);
+            let vdiffuse_g = f32x4::splat(diffuse.y);
+            let vdiffuse_b = f32x4::splat(diffuse.z);
+            let vzero = f32x4::splat(0f32);
 
-            let mut vsum_r = simd::f32x4::splat(0f32);
-            let mut vsum_g = simd::f32x4::splat(0f32);
-            let mut vsum_b = simd::f32x4::splat(0f32);
+            let mut vsum_r = f32x4::splat(0f32);
+            let mut vsum_g = f32x4::splat(0f32);
+            let mut vsum_b = f32x4::splat(0f32);
 
             for (j, ff) in &ff_i.vec4 {
                 // unsafe {
                 let j = *j as usize;
-                let vr = simd::f32x4::load(r, j);
-                let vg = simd::f32x4::load(g, j);
-                let vb = simd::f32x4::load(b, j);
-                let vff = simd::f32x4::load(ff, 0);
+                let vr = f32x4::from_slice_unaligned(&r[j..]);
+                let vg = f32x4::from_slice_unaligned(&g[j..]);
+                let vb = f32x4::from_slice_unaligned(&b[j..]);
+                let vff = f32x4::from_slice_unaligned(ff);
 
                 vsum_r = vsum_r + vr * vdiffuse_r * vff;
                 vsum_g = vsum_g + vg * vdiffuse_g * vff;
@@ -592,22 +588,20 @@ impl Scene {
                 // rad_g += add_g.extract(0);
                 // rad_b += add_b.extract(0);
             }
-            let vsum_r = vsum_r.hadd(vzero);
-            let vsum_g = vsum_g.hadd(vzero);
-            let vsum_b = vsum_b.hadd(vzero);
+            // let vsum_r = vsum_r.hadd(vzero);
+            // let vsum_g = vsum_g.hadd(vzero);
+            // let vsum_b = vsum_b.hadd(vzero);
 
-            let vsum_r = vsum_r.hadd(vzero);
-            let vsum_g = vsum_g.hadd(vzero);
-            let vsum_b = vsum_b.hadd(vzero);
-            rad_r += vsum_r.extract(0);
-            rad_g += vsum_g.extract(0);
-            rad_b += vsum_b.extract(0);
+            // let vsum_r = vsum_r.hadd(vzero);
+            // let vsum_g = vsum_g.hadd(vzero);
+            // let vsum_b = vsum_b.hadd(vzero);
+            rad_r += vsum_r.sum();
+            rad_g += vsum_g.sum();
+            rad_b += vsum_b.sum();
 
             let vdiffuse_r = f32x8::splat(diffuse.x);
             let vdiffuse_g = f32x8::splat(diffuse.y);
             let vdiffuse_b = f32x8::splat(diffuse.z);
-
-            let vzero = simd::f32x4::splat(0f32);
 
             let mut vsum_r = f32x8::splat(0f32);
             let mut vsum_g = f32x8::splat(0f32);
@@ -616,31 +610,31 @@ impl Scene {
             for (j, ff) in &ff_i.vec8 {
                 // unsafe {
                 let j = *j as usize;
-                let vr = f32x8::load(r, j);
-                let vg = f32x8::load(g, j);
-                let vb = f32x8::load(b, j);
-                let vff = f32x8::load(ff, 0);
+                let vr = f32x8::from_slice_unaligned(&r[j..]);
+                let vg = f32x8::from_slice_unaligned(&g[j..]);
+                let vb = f32x8::from_slice_unaligned(&b[j..]);
+                let vff = f32x8::from_slice_unaligned(ff);
 
                 vsum_r = vsum_r + vr * vdiffuse_r * vff;
                 vsum_g = vsum_g + vg * vdiffuse_g * vff;
                 vsum_b = vsum_b + vb * vdiffuse_b * vff;
             }
 
-            let sumr = vsum_r.high() + vsum_r.low();
-            let sumg = vsum_g.high() + vsum_g.low();
-            let sumb = vsum_b.high() + vsum_b.low();
+            // let sumr = vsum_r.high() + vsum_r.low();
+            // let sumg = vsum_g.high() + vsum_g.low();
+            // let sumb = vsum_b.high() + vsum_b.low();
 
-            let sumr = sumr.hadd(vzero);
-            let sumg = sumg.hadd(vzero);
-            let sumb = sumb.hadd(vzero);
+            // let sumr = sumr.hadd(vzero);
+            // let sumg = sumg.hadd(vzero);
+            // let sumb = sumb.hadd(vzero);
 
-            let add_r = sumr.hadd(vzero);
-            let add_g = sumg.hadd(vzero);
-            let add_b = sumb.hadd(vzero);
+            // let add_r = sumr.hadd(vzero);
+            // let add_g = sumg.hadd(vzero);
+            // let add_b = sumb.hadd(vzero);
 
-            rad_r += add_r.extract(0);
-            rad_g += add_g.extract(0);
-            rad_b += add_b.extract(0);
+            rad_r += vsum_r.sum();
+            rad_g += vsum_g.sum();
+            rad_b += vsum_b.sum();
 
             // self.rad_front[i as usize] = self.emit[i as usize] + rad;
             self.rad_front.r[i as usize] = self.emit[i as usize].x + rad_r;
