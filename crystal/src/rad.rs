@@ -6,7 +6,7 @@ use serde::ser::{Serialize, SerializeStruct, Serializer};
 use super::{Bitmap, BlockMap, DisplayWrap, Point3, Point3i, Vec3, Vec3i};
 use super::{Dir, Plane, PlanesSep};
 use cgmath::prelude::*;
-use packed_simd::{f32x4, f32x8};
+use packed_simd::{f32x16, f32x4, f32x8};
 
 use std::cmp::Ordering;
 use std::fs::File;
@@ -281,6 +281,7 @@ pub struct Blocklist {
     vec2: Vec<(u32, [f32; 2])>,
     vec4: Vec<(u32, [f32; 4])>,
     vec8: Vec<(u32, [f32; 8])>,
+    vec16: Vec<(u32, [f32; 16])>,
 }
 
 // impl Serialize for Blocklist {
@@ -356,7 +357,7 @@ impl Blocklist {
             }
         }
 
-        let mut list8 = Vec::new();
+        let mut list8 = std::collections::HashMap::new();;
         let keys = list4.keys().map(|x| *x).collect::<Vec<_>>();
         for i in keys {
             if i % 8 != 0 {
@@ -370,7 +371,7 @@ impl Blocklist {
 
                 if let Some((i1, [ff1, ff2, ff3, ff4])) = v1 {
                     if let Some((_, [ff5, ff6, ff7, ff8])) = v2 {
-                        list8.push((*i1, [*ff1, *ff2, *ff3, *ff4, *ff5, *ff6, *ff7, *ff8]));
+                        list8.insert(*i1, (*i1, [*ff1, *ff2, *ff3, *ff4, *ff5, *ff6, *ff7, *ff8]));
                         remove = true;
                     }
                 }
@@ -381,11 +382,43 @@ impl Blocklist {
             }
         }
 
+        let mut list16 = Vec::new();
+        let keys = list8.keys().map(|x| *x).collect::<Vec<_>>();
+        for i in keys {
+            if i % 16 != 0 {
+                continue;
+            }
+
+            let mut remove = false;
+            {
+                let v1 = list8.get(&i);
+                let v2 = list8.get(&(i + 8));
+
+                if let Some((i1, [ff1, ff2, ff3, ff4, ff5, ff6, ff7, ff8])) = v1 {
+                    if let Some((_, [ff9, ff10, ff11, ff12, ff13, ff14, ff15, ff16])) = v2 {
+                        list16.push((
+                            *i1,
+                            [
+                                *ff1, *ff2, *ff3, *ff4, *ff5, *ff6, *ff7, *ff8, *ff9, *ff10, *ff11,
+                                *ff12, *ff13, *ff14, *ff15, *ff16,
+                            ],
+                        ));
+                        remove = true;
+                    }
+                }
+            }
+            if remove {
+                list8.remove(&i);
+                list8.remove(&(i + 8));
+            }
+        }
+
         Blocklist {
             single: list1.values().map(|x| *x).collect(),
             vec2: list2.values().map(|x| *x).collect(),
             vec4: list4.values().map(|x| *x).collect(),
-            vec8: list8,
+            vec8: list8.values().map(|x| *x).collect(),
+            vec16: list16,
         }
     }
 
@@ -579,22 +612,7 @@ impl Scene {
                 vsum_r = vsum_r + vr * vdiffuse_r * vff;
                 vsum_g = vsum_g + vg * vdiffuse_g * vff;
                 vsum_b = vsum_b + vb * vdiffuse_b * vff;
-
-                // let add_r = vr.hadd(vzero).hadd(vzero);
-                // let add_g = vg.hadd(vzero).hadd(vzero);
-                // let add_b = vb.hadd(vzero).hadd(vzero);
-
-                // rad_r += add_r.extract(0);
-                // rad_g += add_g.extract(0);
-                // rad_b += add_b.extract(0);
             }
-            // let vsum_r = vsum_r.hadd(vzero);
-            // let vsum_g = vsum_g.hadd(vzero);
-            // let vsum_b = vsum_b.hadd(vzero);
-
-            // let vsum_r = vsum_r.hadd(vzero);
-            // let vsum_g = vsum_g.hadd(vzero);
-            // let vsum_b = vsum_b.hadd(vzero);
             rad_r += vsum_r.sum();
             rad_g += vsum_g.sum();
             rad_b += vsum_b.sum();
@@ -619,19 +637,30 @@ impl Scene {
                 vsum_g = vsum_g + vg * vdiffuse_g * vff;
                 vsum_b = vsum_b + vb * vdiffuse_b * vff;
             }
+            rad_r += vsum_r.sum();
+            rad_g += vsum_g.sum();
+            rad_b += vsum_b.sum();
 
-            // let sumr = vsum_r.high() + vsum_r.low();
-            // let sumg = vsum_g.high() + vsum_g.low();
-            // let sumb = vsum_b.high() + vsum_b.low();
+            let vdiffuse_r = f32x16::splat(diffuse.x);
+            let vdiffuse_g = f32x16::splat(diffuse.y);
+            let vdiffuse_b = f32x16::splat(diffuse.z);
 
-            // let sumr = sumr.hadd(vzero);
-            // let sumg = sumg.hadd(vzero);
-            // let sumb = sumb.hadd(vzero);
+            let mut vsum_r = f32x16::splat(0f32);
+            let mut vsum_g = f32x16::splat(0f32);
+            let mut vsum_b = f32x16::splat(0f32);
 
-            // let add_r = sumr.hadd(vzero);
-            // let add_g = sumg.hadd(vzero);
-            // let add_b = sumb.hadd(vzero);
+            for (j, ff) in &ff_i.vec16 {
+                // unsafe {
+                let j = *j as usize;
+                let vr = f32x16::from_slice_unaligned(&r[j..]);
+                let vg = f32x16::from_slice_unaligned(&g[j..]);
+                let vb = f32x16::from_slice_unaligned(&b[j..]);
+                let vff = f32x16::from_slice_unaligned(ff);
 
+                vsum_r = vsum_r + vr * vdiffuse_r * vff;
+                vsum_g = vsum_g + vg * vdiffuse_g * vff;
+                vsum_b = vsum_b + vb * vdiffuse_b * vff;
+            }
             rad_r += vsum_r.sum();
             rad_g += vsum_g.sum();
             rad_b += vsum_b.sum();
