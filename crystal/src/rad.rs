@@ -301,8 +301,26 @@ impl RadBuffer {
         }
     }
 
+    pub fn aligned_vector_init<T: Copy>(len: usize, align: usize, init: T) -> Vec<T> {
+        let mut v = Self::aligned_vector::<T>(len, align);
+        for x in v.iter_mut() {
+            *x = init;
+        }
+        v
+    }
+
     fn slice(&self) -> RadSlice<'_> {
         (&self.r[..], &self.g[..], &self.b[..])
+    }
+    fn new(size: usize) -> RadBuffer {
+        RadBuffer {
+            // r: vec![0f32; size],
+            // g: vec![0f32; size],
+            // b: vec![0f32; size],
+            r: Self::aligned_vector_init(size, 64, 0f32),
+            g: Self::aligned_vector_init(size, 64, 0f32),
+            b: Self::aligned_vector_init(size, 64, 0f32),
+        }
     }
 }
 
