@@ -169,20 +169,6 @@ fn setup_formfactors_single(planes: &PlanesSep, bitmap: &BlockMap) -> Vec<(u32, 
 }
 
 fn setup_formfactors(planes: &PlanesSep, bitmap: &BlockMap) -> Vec<(u32, u32, f32)> {
-    let filename = "ffs3.bin";
-    let version = "v2";
-    if let Ok(f) = std::fs::File::open(filename) {
-        println!("read from {}", filename);
-        let (file_version, ffs): (String, Vec<(u32, u32, f32)>) =
-            bincode::deserialize_from(BufReader::new(f)).unwrap();
-
-        if file_version == version {
-            println!("done");
-            return ffs;
-        }
-        println!("wrong version");
-    }
-
     let mut ffs = setup_formfactors_single(planes, bitmap);
 
     println!("num ffs: {}", ffs.len());
@@ -198,17 +184,12 @@ fn setup_formfactors(planes: &PlanesSep, bitmap: &BlockMap) -> Vec<(u32, u32, f3
             Ordering::Greater => Ordering::Greater,
         },
     );
-    // {
-    //     let file = std::fs::File::create("test.json").unwrap();
-
-    //     serde_json::to_writer(BufWriter::new(file), &ffs);
-    // }
     println!("sorted");
 
-    if let Ok(file) = std::fs::File::create(filename) {
-        bincode::serialize_into(BufWriter::new(file), &(version.to_string(), ffs.clone())).unwrap();
-        println!("wrote {}", filename);
-    }
+    // if let Ok(file) = std::fs::File::create(filename) {
+    //     bincode::serialize_into(BufWriter::new(file), &(version.to_string(), ffs.clone())).unwrap();
+    //     println!("wrote {}", filename);
+    // }
     // write_ffs_debug(&ffs);
     ffs
 }
@@ -259,11 +240,7 @@ pub struct RadBuffer {
     pub b: Vec<f32>,
 }
 type RadSlice<'a> = (&'a [f32], &'a [f32], &'a [f32]);
-// impl Into<(&[f32], &[f32], &[f32])> for RadBuffer {
-//     fn into(&self) -> (&[f32], &[f32], &[f32]) {
-//         (self.r[..], self.g[..], self.b[..])
-//     }
-// }
+type MutRadSlice<'a> = (&'a mut [f32], &'a mut [f32], &'a mut [f32]);
 
 impl RadBuffer {
     /// Utility for making specifically aligned vectors
@@ -301,30 +278,26 @@ impl RadBuffer {
         }
     }
 
-    pub fn aligned_vector_init<T: Copy>(len: usize, align: usize, init: T) -> Vec<T> {
-        let mut v = Self::aligned_vector::<T>(len, align);
-        for x in v.iter_mut() {
-            *x = init;
-        }
-        v
+    fn slice(&self, i: std::ops::Range<usize>) -> RadSlice<'_> {
+        (&self.r[i.clone()], &self.g[i.clone()], &self.b[i.clone()])
     }
-
-    fn slice(&self) -> RadSlice<'_> {
+    fn slice_mut(&mut self, i: std::ops::Range<usize>) -> MutRadSlice<'_> {
+        (
+            &mut self.r[i.clone()],
+            &mut self.g[i.clone()],
+            &mut self.b[i.clone()],
+        )
+    }
+    // this is a bit redundant, but found no better way since SliceIndex is non-copy and thus cannot be used for indexing multiple Vecs
+    fn slice_full(&self) -> RadSlice<'_> {
         (&self.r[..], &self.g[..], &self.b[..])
     }
-    fn new(size: usize) -> RadBuffer {
-        RadBuffer {
-            // r: vec![0f32; size],
-            // g: vec![0f32; size],
-            // b: vec![0f32; size],
-            r: Self::aligned_vector_init(size, 64, 0f32),
-            g: Self::aligned_vector_init(size, 64, 0f32),
-            b: Self::aligned_vector_init(size, 64, 0f32),
-        }
+    fn slice_full_mut(&mut self) -> MutRadSlice<'_> {
+        (&mut self.r[..], &mut self.g[..], &mut self.b[..])
     }
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Blocklist {
     single: Vec<(u32, f32)>,
     vec2: Vec<(u32, [f32; 2])>,
@@ -332,14 +305,6 @@ pub struct Blocklist {
     vec8: Vec<(u32, [f32; 8])>,
     vec16: Vec<(u32, [f32; 16])>,
 }
-
-// pub struct Blockslices<'a> {
-//     single: Vec<(&'a f32, &'a f32, &'a f32, f32)>,
-//     vec2: Vec<(&'a [f32; 2], &'a [f32; 2], &'a [f32; 2], [f32; 2])>,
-//     vec4: Vec<(&'a [f32; 4], &'a [f32; 4], &'a [f32; 4], [f32; 4])>,
-//     vec8: Vec<(&'a [f32; 8], &'a [f32; 8], &'a [f32; 8], [f32; 8])>,
-//     vec16: Vec<(&'a [f32; 16], &'a [f32; 16], &'a [f32; 16], [f32; 16])>,
-// }
 
 impl Blocklist {
     fn new(ff: &Vec<(u32, f32)>) -> Blocklist {
@@ -485,7 +450,7 @@ pub struct Scene {
     pub bitmap: BlockMap,
     pub emit: Vec<Vec3>,
     // pub ff: Vec<(u32, u32, f32)>,
-    pub ff: Vec<Vec<(u32, f32)>>,
+    // pub ff: Vec<Vec<(u32, f32)>>,
     pub blocks: Vec<Blocklist>,
     // pub rad_front: Vec<Vec3>,
     // pub rad_back: Vec<Vec3>,
@@ -500,17 +465,50 @@ fn vec_mul(v1: &Vec3, v2: &Vec3) -> Vec3 {
 }
 
 impl Scene {
-    pub fn new(planes: PlanesSep, bitmap: BlockMap) -> Self {
-        let formfactors = split_formfactors(setup_formfactors(&planes, &bitmap));
-        let blocks = formfactors
-            .iter()
-            .map(|x| Blocklist::new(x))
-            .collect::<Vec<_>>();
-        let filename = "blocks.bin";
-        if let Ok(file) = std::fs::File::create(filename) {
-            bincode::serialize_into(BufWriter::new(file), &blocks).unwrap();
-            println!("wrote {}", filename);
+    fn load_blocks(filename: &str, version: &str) -> Option<Vec<Blocklist>> {
+        if let Ok(f) = std::fs::File::open(filename) {
+            println!("read from {}", filename);
+            let (file_version, blocks): (String, Vec<Blocklist>) =
+                bincode::deserialize_from(BufReader::new(f)).unwrap();
+
+            if file_version == version {
+                println!("done");
+                return Some(blocks);
+            }
+            println!("wrong version");
         }
+        return None;
+    }
+
+    pub fn new(planes: PlanesSep, bitmap: BlockMap) -> Self {
+        let filename = "blocks2.bin";
+        let version = "v1";
+
+        let blocks = if let Some(b) = Self::load_blocks(filename, version) {
+            b
+        } else {
+            let formfactors = split_formfactors(setup_formfactors(&planes, &bitmap));
+            let blocks = formfactors
+                .iter()
+                .map(|x| Blocklist::new(x))
+                .collect::<Vec<_>>();
+            if let Ok(file) = std::fs::File::create(filename) {
+                bincode::serialize_into(BufWriter::new(file), &(&version, &blocks)).unwrap();
+            }
+            println!("wrote {}", filename);
+            blocks.clone() // this clone does something to the memory layout that improves performance by ~25%... don't know what it is
+        };
+
+        // let formfactors = split_formfactors(setup_formfactors(&planes, &bitmap));
+        // let blocks = formfactors
+        //     .iter()
+        //     .map(|x| Blocklist::new(x))
+        //     .collect::<Vec<_>>();
+        // let filename = "blocks.bin";
+        // if let Ok(file) = std::fs::File::create(filename) {
+        //     bincode::serialize_into(BufWriter::new(file), &blocks).unwrap();
+        //     println!("wrote {}", filename);
+        // }
 
         Scene {
             emit: vec![Vec3::zero(); planes.num_planes()],
@@ -519,7 +517,7 @@ impl Scene {
             rad_front: RadBuffer::new(planes.num_planes()),
             rad_back: RadBuffer::new(planes.num_planes()),
             blocks: blocks,
-            ff: formfactors,
+            //ff: formfactors,
             diffuse: vec![Vec3::new(1f32, 1f32, 1f32); planes.num_planes()],
             planes: planes,
             bitmap: bitmap,
@@ -570,69 +568,109 @@ impl Scene {
     }
 
     pub fn do_rad(&mut self) {
-        if true {
-            self.do_rad_blocks();
-        } else {
-            std::mem::swap(&mut self.rad_front, &mut self.rad_back);
+        // if true {
+        self.do_rad_blocks();
+        // } else {
+        //     std::mem::swap(&mut self.rad_front, &mut self.rad_back);
 
-            for (i, ff_i) in self.ff.iter().enumerate() {
-                // let mut rad = Vec3::zero();
+        //     for (i, ff_i) in self.ff.iter().enumerate() {
+        //         // let mut rad = Vec3::zero();
 
-                let mut rad_r = 0f32;
-                let mut rad_g = 0f32;
-                let mut rad_b = 0f32;
-                let diffuse = self.diffuse[i as usize];
-                let r = &self.rad_back.r[..];
-                let g = &self.rad_back.g[..];
-                let b = &self.rad_back.b[..];
-                for (j, ff) in ff_i {
-                    // unsafe {
-                    rad_r += r[*j as usize] * diffuse.x * *ff;
-                    rad_g += g[*j as usize] * diffuse.y * *ff;
-                    rad_b += b[*j as usize] * diffuse.z * *ff;
-                    // }
-                }
+        //         let mut rad_r = 0f32;
+        //         let mut rad_g = 0f32;
+        //         let mut rad_b = 0f32;
+        //         let diffuse = self.diffuse[i as usize];
+        //         let r = &self.rad_back.r[..];
+        //         let g = &self.rad_back.g[..];
+        //         let b = &self.rad_back.b[..];
+        //         for (j, ff) in ff_i {
+        //             // unsafe {
+        //             rad_r += r[*j as usize] * diffuse.x * *ff;
+        //             rad_g += g[*j as usize] * diffuse.y * *ff;
+        //             rad_b += b[*j as usize] * diffuse.z * *ff;
+        //             // }
+        //         }
 
-                // self.rad_front[i as usize] = self.emit[i as usize] + rad;
-                self.rad_front.r[i as usize] = self.emit[i as usize].x + rad_r;
-                self.rad_front.g[i as usize] = self.emit[i as usize].y + rad_g;
-                self.rad_front.b[i as usize] = self.emit[i as usize].z + rad_b;
+        //         // self.rad_front[i as usize] = self.emit[i as usize] + rad;
+        //         self.rad_front.r[i as usize] = self.emit[i as usize].x + rad_r;
+        //         self.rad_front.g[i as usize] = self.emit[i as usize].y + rad_g;
+        //         self.rad_front.b[i as usize] = self.emit[i as usize].z + rad_b;
 
-                self.pints += ff_i.len();
-            }
-        }
+        //         self.pints += ff_i.len();
+        //     }
+        // }
     }
 
-    // pub fn do_rad_blocks(&mut self) {
-    //     std::mem::swap(&mut self.rad_front, &mut self.rad_back);
-    //     // self.rad_front.copy
-    //     let mut front = RadBuffer::new(0);
-    //     std::mem::swap(&mut self.rad_front, &mut front);
-
-    //     self.pints += self.do_rad_blocks_sub(&self.rad_back, &mut front, &self.blocks);
-    //     std::mem::swap(&mut self.rad_front, &mut front);
-    // }
-
     pub fn do_rad_blocks(&mut self) {
+        // let start = Instant::now();
+
         std::mem::swap(&mut self.rad_front, &mut self.rad_back);
         // self.rad_front.copy
 
-        assert!(self.rad_front.r.len() == self.ff.len());
+        assert!(self.rad_front.r.len() == self.blocks.len());
         let mut front = RadBuffer::new(0);
         std::mem::swap(&mut self.rad_front, &mut front);
 
-        self.pints += self.do_rad_blocks_sub(self.rad_back.slice(), &mut front, &self.blocks);
+        // let num_threads = 4;
+        // let chunk_size = self.blocks.len() / num_threads;
+        // // self.pints += RadWorkblock::new(
+        //     self.rad_back.slice_full(),
+        //     front.slice_mut(10000..20000),
+        //     &self.blocks[10000..20000],
+        //     &self.emit[10000..20000],
+        //     &self.diffuse[10000..20000],
+        // )
+        // .do_iter();
+        self.pints += RadWorkblock::new(
+            self.rad_back.slice_full(),
+            front.slice_full_mut(),
+            &self.blocks,
+            &self.emit,
+            &self.diffuse,
+        )
+        .do_iter();
+
         std::mem::swap(&mut self.rad_front, &mut front);
+
+        // println!("time: {:?}", start.elapsed());
     }
 
-    pub fn do_rad_blocks_sub(
-        &self,
-        src: RadSlice,
-        dest: &mut RadBuffer,
-        blocks: &Vec<Blocklist>,
-    ) -> usize {
+    pub fn print_stat(&self) {
+        println!("write blocks");
+
+        for blocklist in &self.blocks {
+            blocklist.print_stat();
+        }
+    }
+}
+
+struct RadWorkblock<'a> {
+    src: RadSlice<'a>,
+    dest: MutRadSlice<'a>,
+    blocks: &'a [Blocklist],
+    emit: &'a [Vec3],
+    diffuse: &'a [Vec3],
+}
+
+impl RadWorkblock<'_> {
+    pub fn new<'a>(
+        src: RadSlice<'a>,
+        dest: MutRadSlice<'a>,
+        blocks: &'a [Blocklist],
+        emit: &'a [Vec3],
+        diffuse: &'a [Vec3],
+    ) -> RadWorkblock<'a> {
+        RadWorkblock {
+            src: src,
+            dest: dest,
+            blocks: blocks,
+            emit: emit,
+            diffuse: diffuse,
+        }
+    }
+    pub fn do_iter(&mut self) -> usize {
         let mut pints: usize = 0;
-        for (i, ff_i) in blocks.iter().enumerate() {
+        for (i, ff_i) in self.blocks.iter().enumerate() {
             // let mut rad = Vec3::zero();
 
             let mut rad_r = 0f32;
@@ -644,7 +682,7 @@ impl Scene {
             // let g = &src.g[..];
             // let b = &src.b[..];
 
-            let (r, g, b) = src;
+            let (r, g, b) = self.src;
             for (j, ff) in &ff_i.single {
                 unsafe {
                     rad_r += r.get_unchecked(*j as usize) * diffuse.x * *ff;
@@ -760,9 +798,9 @@ impl Scene {
             rad_g += vsum_g.sum();
             rad_b += vsum_b.sum();
 
-            dest.r[i as usize] = self.emit[i as usize].x + rad_r;
-            dest.g[i as usize] = self.emit[i as usize].y + rad_g;
-            dest.b[i as usize] = self.emit[i as usize].z + rad_b;
+            self.dest.0[i as usize] = self.emit[i as usize].x + rad_r;
+            self.dest.1[i as usize] = self.emit[i as usize].y + rad_g;
+            self.dest.2[i as usize] = self.emit[i as usize].z + rad_b;
 
             pints += ff_i.single.len()
                 + ff_i.vec2.len() * 2
@@ -771,13 +809,5 @@ impl Scene {
                 + ff_i.vec16.len() * 16;
         }
         pints
-    }
-
-    pub fn print_stat(&self) {
-        println!("write blocks");
-
-        for blocklist in &self.blocks {
-            blocklist.print_stat();
-        }
     }
 }
