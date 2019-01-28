@@ -1,14 +1,13 @@
 language: rust
 cache: cargo
 rust:
-  - stable
+#  - stable
   - beta
   - nightly
 matrix:
   allow_failures:
-    - rust: nightly
+    - rust: stable
   fast_finish: true
 
 env:
   - RUSTFLAGS="-C target-feature=+avx"
-  
