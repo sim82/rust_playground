@@ -258,6 +258,12 @@ pub struct RadBuffer {
     pub g: Vec<f32>,
     pub b: Vec<f32>,
 }
+type RadSlice<'a> = (&'a [f32], &'a [f32], &'a [f32]);
+// impl Into<(&[f32], &[f32], &[f32])> for RadBuffer {
+//     fn into(&self) -> (&[f32], &[f32], &[f32]) {
+//         (self.r[..], self.g[..], self.b[..])
+//     }
+// }
 
 impl RadBuffer {
     /// Utility for making specifically aligned vectors
@@ -293,6 +299,10 @@ impl RadBuffer {
             g: Self::aligned_vector_init(size, 64, 0f32),
             b: Self::aligned_vector_init(size, 64, 0f32),
         }
+    }
+
+    fn slice(&self) -> RadSlice<'_> {
+        (&self.r[..], &self.g[..], &self.b[..])
     }
 }
 
@@ -593,13 +603,13 @@ impl Scene {
         let mut front = RadBuffer::new(0);
         std::mem::swap(&mut self.rad_front, &mut front);
 
-        self.pints += self.do_rad_blocks_sub(&self.rad_back, &mut front, &self.blocks);
+        self.pints += self.do_rad_blocks_sub(self.rad_back.slice(), &mut front, &self.blocks);
         std::mem::swap(&mut self.rad_front, &mut front);
     }
 
     pub fn do_rad_blocks_sub(
         &self,
-        src: &RadBuffer,
+        src: RadSlice,
         dest: &mut RadBuffer,
         blocks: &Vec<Blocklist>,
     ) -> usize {
@@ -612,9 +622,11 @@ impl Scene {
             let mut rad_b = 0f32;
             let diffuse = self.diffuse[i as usize];
 
-            let r = &src.r[..];
-            let g = &src.g[..];
-            let b = &src.b[..];
+            // let r = &src.r[..];
+            // let g = &src.g[..];
+            // let b = &src.b[..];
+
+            let (r, g, b) = src;
             for (j, ff) in &ff_i.single {
                 unsafe {
                     rad_r += r.get_unchecked(*j as usize) * diffuse.x * *ff;
