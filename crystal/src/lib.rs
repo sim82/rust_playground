@@ -7,6 +7,9 @@ extern crate image;
 extern crate packed_simd;
 extern crate serde;
 extern crate serde_json;
+#[macro_use]
+extern crate itertools;
+extern crate rayon;
 
 use cgmath::prelude::*;
 use std::fs::File;

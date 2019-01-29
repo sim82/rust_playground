@@ -1,17 +1,15 @@
-use image::ImageBuffer;
-use serde::ser::{Serialize, SerializeStruct, Serializer};
-// use self::simd::x86::avx::*;
-// use self::simd::x86::sse3::*;
 #[allow(unused_imports)]
 use super::{Bitmap, BlockMap, DisplayWrap, Point3, Point3i, Vec3, Vec3i};
 use super::{Dir, Plane, PlanesSep};
 use cgmath::prelude::*;
+use image::ImageBuffer;
 use packed_simd::{f32x16, f32x2, f32x4, f32x8};
 
 use std::cmp::Ordering;
-use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::time::Instant;
+
+use rayon::prelude::*;
 fn occluded(p0: Point3i, p1: Point3i, solid: &Bitmap) -> bool {
     // 3d bresenham, ripped from http://www.cobrabytes.com/index.php?topic=1150.0
 
@@ -75,8 +73,6 @@ fn occluded(p0: Point3i, p1: Point3i, solid: &Bitmap) -> bool {
             std::mem::swap(&mut cx, &mut cy);
         }
 
-        // passes through this point
-        // debugmsg(":" + cx + ", " + cy + ", " + cz)
         if solid.get(Point3i::new(cx, cy, cz)) {
             // println!("stop {}", DisplayWrap::from(Point3i::new(cx, cy, cz)));
             return true;
@@ -151,8 +147,6 @@ fn setup_formfactors_single(planes: &PlanesSep, bitmap: &BlockMap) -> Vec<(u32, 
             let dn = (p1f - p2f).normalize();
             let d2 = (p1f - p2f).magnitude2(); // uhm, will the compiler optimize the two calls?
 
-            // std::cout << p1_3d << " " << p2_3d << " " << dn << "\n";
-            //.norm();
             let ff1 = 0.0f32.max(cgmath::dot(norm1f, Vec3::zero() - dn));
             let ff2 = 0.0f32.max(cgmath::dot(norm2f, dn));
 
@@ -185,12 +179,6 @@ fn setup_formfactors(planes: &PlanesSep, bitmap: &BlockMap) -> Vec<(u32, u32, f3
         },
     );
     println!("sorted");
-
-    // if let Ok(file) = std::fs::File::create(filename) {
-    //     bincode::serialize_into(BufWriter::new(file), &(version.to_string(), ffs.clone())).unwrap();
-    //     println!("wrote {}", filename);
-    // }
-    // write_ffs_debug(&ffs);
     ffs
 }
 
@@ -209,12 +197,6 @@ fn write_ffs_debug(ffs: &Vec<(u32, u32, f32)>) {
 
     for (x, y, _) in ffs {
         let pixel = image.get_pixel_mut(*x, *y);
-        // *pixel = image::Luma([((*f / maxf) * 255f32) as u8]);
-        // *pixel = if *f != 0f32 {
-        //     image::Luma([255u8])
-        // } else {
-        //     image::Luma([0u8])
-        // }
         *pixel = image::Luma([255u8]);
     }
     println!("writing ffs.png");
@@ -269,9 +251,6 @@ impl RadBuffer {
 
     fn new(size: usize) -> RadBuffer {
         RadBuffer {
-            // r: vec![0f32; size],
-            // g: vec![0f32; size],
-            // b: vec![0f32; size],
             r: Self::aligned_vector_init(size, 64, 0f32),
             g: Self::aligned_vector_init(size, 64, 0f32),
             b: Self::aligned_vector_init(size, 64, 0f32),
@@ -294,6 +273,29 @@ impl RadBuffer {
     }
     fn slice_full_mut(&mut self) -> MutRadSlice<'_> {
         (&mut self.r[..], &mut self.g[..], &mut self.b[..])
+    }
+
+    fn chunks_mut(&mut self, size: usize) -> impl Iterator<Item = MutRadSlice<'_>> {
+        itertools::izip!(
+            self.r.chunks_mut(size),
+            self.g.chunks_mut(size),
+            self.b.chunks_mut(size)
+        )
+    }
+
+    fn chunks_mut2(
+        &mut self,
+        size: usize,
+    ) -> (
+        impl Iterator<Item = &mut [f32]>,
+        impl Iterator<Item = &mut [f32]>,
+        impl Iterator<Item = &mut [f32]>,
+    ) {
+        (
+            self.r.chunks_mut(size),
+            self.g.chunks_mut(size),
+            self.b.chunks_mut(size),
+        )
     }
 }
 
@@ -441,19 +443,11 @@ impl Blocklist {
     }
 }
 
-// impl Blockslices {
-//     fn new(blocklist: &Blocklist, radbuf: &RadBuffer) -> blockslices {}
-// }
-
 pub struct Scene {
     pub planes: PlanesSep,
     pub bitmap: BlockMap,
     pub emit: Vec<Vec3>,
-    // pub ff: Vec<(u32, u32, f32)>,
-    // pub ff: Vec<Vec<(u32, f32)>>,
     pub blocks: Vec<Blocklist>,
-    // pub rad_front: Vec<Vec3>,
-    // pub rad_back: Vec<Vec3>,
     pub rad_front: RadBuffer,
     pub rad_back: RadBuffer,
     pub diffuse: Vec<Vec3>,
@@ -499,17 +493,6 @@ impl Scene {
             blocks.clone() // this clone does something to the memory layout that improves performance by ~25%... don't know what it is
         };
 
-        // let formfactors = split_formfactors(setup_formfactors(&planes, &bitmap));
-        // let blocks = formfactors
-        //     .iter()
-        //     .map(|x| Blocklist::new(x))
-        //     .collect::<Vec<_>>();
-        // let filename = "blocks.bin";
-        // if let Ok(file) = std::fs::File::create(filename) {
-        //     bincode::serialize_into(BufWriter::new(file), &blocks).unwrap();
-        //     println!("wrote {}", filename);
-        // }
-
         Scene {
             emit: vec![Vec3::zero(); planes.num_planes()],
             // rad_front: vec![Vec3::zero(); planes.num_planes()],
@@ -534,13 +517,6 @@ impl Scene {
     pub fn apply_light(&mut self, pos: Point3, color: Vec3) {
         let light_pos = Point3i::new(pos.x as i32, pos.y as i32, pos.z as i32);
         for (i, plane) in self.planes.planes_iter().enumerate() {
-            // let trace_pos = Vec3::new(
-            //     plane.cell.x as f32,
-            //     plane.cell.x as f32,
-            //     plane.cell.x as f32,
-            // ) + Vec3::new(0.5, 0.5, 0.5)
-            //     + plane.dir.get_normal() * 0.5;
-
             let trace_pos = plane.cell + plane.dir.get_normal();
 
             let mut d = (pos
@@ -551,11 +527,6 @@ impl Scene {
             let len = d.magnitude();
             d /= len;
             let dot = cgmath::dot(d, plane.dir.get_normal());
-
-            // if (dot > 0)
-            // {
-            //     emit_rgb_[i] += (p.col_diff() * light_color) * dot * (5 / (2 * 3.1415f * len * len));
-            // }
 
             self.emit[i] = Vec3::zero(); //new(0.2, 0.2, 0.2);
             let diff_color = self.diffuse[i];
@@ -568,37 +539,7 @@ impl Scene {
     }
 
     pub fn do_rad(&mut self) {
-        // if true {
         self.do_rad_blocks();
-        // } else {
-        //     std::mem::swap(&mut self.rad_front, &mut self.rad_back);
-
-        //     for (i, ff_i) in self.ff.iter().enumerate() {
-        //         // let mut rad = Vec3::zero();
-
-        //         let mut rad_r = 0f32;
-        //         let mut rad_g = 0f32;
-        //         let mut rad_b = 0f32;
-        //         let diffuse = self.diffuse[i as usize];
-        //         let r = &self.rad_back.r[..];
-        //         let g = &self.rad_back.g[..];
-        //         let b = &self.rad_back.b[..];
-        //         for (j, ff) in ff_i {
-        //             // unsafe {
-        //             rad_r += r[*j as usize] * diffuse.x * *ff;
-        //             rad_g += g[*j as usize] * diffuse.y * *ff;
-        //             rad_b += b[*j as usize] * diffuse.z * *ff;
-        //             // }
-        //         }
-
-        //         // self.rad_front[i as usize] = self.emit[i as usize] + rad;
-        //         self.rad_front.r[i as usize] = self.emit[i as usize].x + rad_r;
-        //         self.rad_front.g[i as usize] = self.emit[i as usize].y + rad_g;
-        //         self.rad_front.b[i as usize] = self.emit[i as usize].z + rad_b;
-
-        //         self.pints += ff_i.len();
-        //     }
-        // }
     }
 
     pub fn do_rad_blocks(&mut self) {
@@ -611,28 +552,34 @@ impl Scene {
         let mut front = RadBuffer::new(0);
         std::mem::swap(&mut self.rad_front, &mut front);
 
-        // let num_threads = 4;
-        // let chunk_size = self.blocks.len() / num_threads;
-        // // self.pints += RadWorkblock::new(
-        //     self.rad_back.slice_full(),
-        //     front.slice_mut(10000..20000),
-        //     &self.blocks[10000..20000],
-        //     &self.emit[10000..20000],
-        //     &self.diffuse[10000..20000],
-        // )
-        // .do_iter();
-        self.pints += RadWorkblock::new(
-            self.rad_back.slice_full(),
-            front.slice_full_mut(),
-            &self.blocks,
-            &self.emit,
-            &self.diffuse,
+        let num_chunks = 32;
+        let chunk_size = self.blocks.len() / num_chunks;
+        let blocks_split = self.blocks.chunks(chunk_size).collect::<Vec<_>>();
+        let emit_split = self.emit.chunks(chunk_size).collect::<Vec<_>>();
+        let diffuse_split = self.diffuse.chunks(chunk_size).collect::<Vec<_>>();
+
+        let (r_split, g_split, b_split) = front.chunks_mut2(chunk_size);
+        let mut tmp = itertools::izip!(
+            // front.chunks_mut(chunk_size),
+            r_split,
+            g_split,
+            b_split,
+            blocks_split,
+            emit_split,
+            diffuse_split
         )
-        .do_iter();
+        .collect::<Vec<_>>();
+
+        self.pints += tmp
+            .par_iter_mut()
+            // .iter_mut()
+            .map(|(ref mut r, ref mut g, ref mut b, blocks, emit, diffuse)| {
+                RadWorkblock::new(self.rad_back.slice_full(), (r, g, b), blocks, emit, diffuse)
+                    .do_iter()
+            })
+            .sum::<usize>();
 
         std::mem::swap(&mut self.rad_front, &mut front);
-
-        // println!("time: {:?}", start.elapsed());
     }
 
     pub fn print_stat(&self) {
@@ -677,10 +624,6 @@ impl RadWorkblock<'_> {
             let mut rad_g = 0f32;
             let mut rad_b = 0f32;
             let diffuse = self.diffuse[i as usize];
-
-            // let r = &src.r[..];
-            // let g = &src.g[..];
-            // let b = &src.b[..];
 
             let (r, g, b) = self.src;
             for (j, ff) in &ff_i.single {
