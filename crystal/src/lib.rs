@@ -17,6 +17,7 @@ use std::io::{BufRead, BufReader};
 use std::iter::Iterator;
 use std::path::Path;
 
+pub mod ffs;
 pub mod rad;
 
 pub type BlockMap = ndarray::Array3<bool>;

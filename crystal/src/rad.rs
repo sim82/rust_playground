@@ -5,6 +5,7 @@ use cgmath::prelude::*;
 use image::ImageBuffer;
 use packed_simd::{f32x16, f32x2, f32x4, f32x8};
 
+use super::ffs;
 use std::cmp::Ordering;
 use std::io::{BufReader, BufWriter};
 use std::time::Instant;
@@ -441,6 +442,14 @@ impl Blocklist {
             self.vec8.len(),
         );
     }
+
+    fn num_formfactors(&self) -> usize {
+        return self.single.len()
+            + self.vec2.len() * 2
+            + self.vec4.len() * 4
+            + self.vec8.len() * 8
+            + self.vec16.len() * 16;
+    }
 }
 
 pub struct Scene {
@@ -482,6 +491,17 @@ impl Scene {
             b
         } else {
             let formfactors = split_formfactors(setup_formfactors(&planes, &bitmap));
+            let extents = ffs::to_extents(&formfactors);
+            for (i, extlist) in extents.iter().enumerate() {
+                println!("{}: {} ", i, extlist.len());
+
+                for ext in extlist {
+                    print!("{:?} ", ext);
+                }
+
+                println!("\n");
+            }
+
             let blocks = formfactors
                 .iter()
                 .map(|x| Blocklist::new(x))
@@ -525,10 +545,10 @@ impl Scene {
 
             // normalize: make directional light
             let len = d.magnitude();
-            d /= len;
+            // d /= len;
             let dot = cgmath::dot(d, plane.dir.get_normal());
 
-            self.emit[i] = Vec3::zero(); //new(0.2, 0.2, 0.2);
+            //self.emit[i] = Vec3::zero(); //new(0.2, 0.2, 0.2);
             let diff_color = self.diffuse[i];
             if !occluded(light_pos, trace_pos, &self.bitmap) && dot > 0f32 {
                 // println!("light");
@@ -583,11 +603,16 @@ impl Scene {
     }
 
     pub fn print_stat(&self) {
-        println!("write blocks");
+        // println!("write blocks");
 
-        for blocklist in &self.blocks {
-            blocklist.print_stat();
-        }
+        // for blocklist in &self.blocks {
+        //     blocklist.print_stat();
+        // }
+
+        let ff_size: usize = self.blocks.iter().map(|x| x.num_formfactors() * 4).sum();
+        let color_size = self.rad_front.r.len() * 3 * 4 * 2;
+
+        println!("working set:\nff: {}\ncolor: {}", ff_size, color_size);
     }
 }
 
