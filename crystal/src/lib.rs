@@ -19,6 +19,7 @@ use std::path::Path;
 
 pub mod ffs;
 pub mod rad;
+pub mod util;
 
 pub type BlockMap = ndarray::Array3<bool>;
 
