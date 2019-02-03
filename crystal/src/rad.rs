@@ -105,127 +105,42 @@ pub struct Blocklist {
     vec16: Vec<(u32, [f32; 16])>,
 }
 
+macro_rules! slice_to_array {
+    ($x:expr, $size:expr) => {{
+        let mut array = [0f32; $size];
+        array.copy_from_slice(&$x[..$size]);
+        array
+    }};
+}
+
 impl Blocklist {
-    fn new(ff: &Vec<(u32, f32)>) -> Blocklist {
-        // TODO: this crap can be done in a single scan over ff...
-        let mut list1 = ff
+    fn from_extents(extents: &Vec<ffs::Extent>) -> Blocklist {
+        let mut vec16 = Vec::new();
+        let mut vec8 = Vec::new();
+        let mut vec4 = Vec::new();
+        let mut vec2 = Vec::new();
+        let mut single = Vec::new();
+
+        for ext in extents
             .iter()
-            .map(|(i, ff)| (*i, (*i, *ff)))
-            .collect::<std::collections::HashMap<u32, (u32, f32)>>();
-
-        let mut list2 = std::collections::HashMap::new();
-        let keys = list1.keys().map(|x| *x).collect::<Vec<_>>();
-
-        for i in keys {
-            if i % 2 != 0 {
-                continue;
-            }
-
-            let mut remove = false;
-            {
-                let v1 = list1.get(&i);
-                let v2 = list1.get(&(i + 1));
-
-                if let Some((i1, ff1)) = v1 {
-                    if let Some((_, ff2)) = v2 {
-                        list2.insert(*i1, (*i1, [*ff1, *ff2]));
-                        remove = true;
-                    }
-                }
-            }
-            if remove {
-                list1.remove(&i);
-                list1.remove(&(i + 1));
-            }
-        }
-
-        let mut list4 = std::collections::HashMap::new();
-        let keys = list2.keys().map(|x| *x).collect::<Vec<_>>();
-        for i in keys {
-            if i % 4 != 0 {
-                continue;
-            }
-
-            let mut remove = false;
-            {
-                let v1 = list2.get(&i);
-                let v2 = list2.get(&(i + 2));
-
-                if let Some((i1, [ff1, ff2])) = v1 {
-                    if let Some((_, [ff3, ff4])) = v2 {
-                        list4.insert(*i1, (*i1, [*ff1, *ff2, *ff3, *ff4]));
-                        remove = true;
-                    }
-                }
-            }
-            if remove {
-                list2.remove(&i);
-                list2.remove(&(i + 2));
-            }
-        }
-
-        let mut list8 = std::collections::HashMap::new();;
-        let keys = list4.keys().map(|x| *x).collect::<Vec<_>>();
-        for i in keys {
-            if i % 8 != 0 {
-                continue;
-            }
-
-            let mut remove = false;
-            {
-                let v1 = list4.get(&i);
-                let v2 = list4.get(&(i + 4));
-
-                if let Some((i1, [ff1, ff2, ff3, ff4])) = v1 {
-                    if let Some((_, [ff5, ff6, ff7, ff8])) = v2 {
-                        list8.insert(*i1, (*i1, [*ff1, *ff2, *ff3, *ff4, *ff5, *ff6, *ff7, *ff8]));
-                        remove = true;
-                    }
-                }
-            }
-            if remove {
-                list4.remove(&i);
-                list4.remove(&(i + 4));
-            }
-        }
-
-        let mut list16 = Vec::new();
-        let keys = list8.keys().map(|x| *x).collect::<Vec<_>>();
-        for i in keys {
-            if i % 16 != 0 {
-                continue;
-            }
-
-            let mut remove = false;
-            {
-                let v1 = list8.get(&i);
-                let v2 = list8.get(&(i + 8));
-
-                if let Some((i1, [ff1, ff2, ff3, ff4, ff5, ff6, ff7, ff8])) = v1 {
-                    if let Some((_, [ff9, ff10, ff11, ff12, ff13, ff14, ff15, ff16])) = v2 {
-                        list16.push((
-                            *i1,
-                            [
-                                *ff1, *ff2, *ff3, *ff4, *ff5, *ff6, *ff7, *ff8, *ff9, *ff10, *ff11,
-                                *ff12, *ff13, *ff14, *ff15, *ff16,
-                            ],
-                        ));
-                        remove = true;
-                    }
-                }
-            }
-            if remove {
-                list8.remove(&i);
-                list8.remove(&(i + 8));
+            .flat_map(|x| x.split_aligned(&[16, 8, 4, 2, 1]))
+        {
+            match ext.ffs.len() {
+                16 => vec16.push((ext.start, slice_to_array!(ext.ffs, 16))),
+                8 => vec8.push((ext.start, slice_to_array!(ext.ffs, 8))),
+                4 => vec4.push((ext.start, slice_to_array!(ext.ffs, 4))),
+                2 => vec2.push((ext.start, slice_to_array!(ext.ffs, 2))),
+                1 => single.push((ext.start, ext.ffs[0])),
+                _ => panic!("bad extent size: {}", ext.ffs.len()),
             }
         }
 
         Blocklist {
-            single: list1.values().map(|x| *x).collect(),
-            vec2: list2.values().map(|x| *x).collect(),
-            vec4: list4.values().map(|x| *x).collect(),
-            vec8: list8.values().map(|x| *x).collect(),
-            vec16: list16,
+            single: single,
+            vec2: vec2,
+            vec4: vec4,
+            vec8: vec8,
+            vec16: vec16,
         }
     }
 
@@ -265,50 +180,26 @@ fn vec_mul(v1: &Vec3, v2: &Vec3) -> Vec3 {
 }
 
 impl Scene {
-    fn load_blocks(filename: &str, version: &str) -> Option<Vec<Blocklist>> {
-        if let Ok(f) = std::fs::File::open(filename) {
-            println!("read from {}", filename);
-            let (file_version, blocks): (String, Vec<Blocklist>) =
-                bincode::deserialize_from(BufReader::new(f)).unwrap();
-
-            if file_version == version {
-                println!("done");
-                return Some(blocks);
-            }
-            println!("wrong version");
-        }
-        return None;
-    }
-
     pub fn new(planes: PlanesSep, bitmap: BlockMap) -> Self {
-        let filename = "blocks2.bin";
-        let version = "v1";
+        let filename = "extents.bin";
 
-        let blocks = if let Some(b) = Self::load_blocks(filename, version) {
-            b
+        let extents = if let Some(extents) = ffs::load_extents(filename) {
+            extents
         } else {
             let formfactors = ffs::split_formfactors(ffs::setup_formfactors(&planes, &bitmap));
             let extents = ffs::to_extents(&formfactors);
-            for (i, extlist) in extents.iter().enumerate() {
-                println!("{}: {} ", i, extlist.len());
-
-                for ext in extlist {
-                    print!("{:?} ", ext);
-                }
-
-                println!("\n");
-            }
-
-            let blocks = formfactors
-                .iter()
-                .map(|x| Blocklist::new(x))
-                .collect::<Vec<_>>();
-            if let Ok(file) = std::fs::File::create(filename) {
-                bincode::serialize_into(BufWriter::new(file), &(&version, &blocks)).unwrap();
-            }
+            ffs::write_extents(filename, &extents);
             println!("wrote {}", filename);
-            blocks.clone() // this clone does something to the memory layout that improves performance by ~25%... don't know what it is
+            extents
         };
+
+        let start = Instant::now();
+        let blocks = extents
+            .iter()
+            .map(|x| Blocklist::from_extents(x))
+            .collect::<Vec<_>>();
+        // .clone(); // additional clone optimizes memory layout of ff arrays
+        println!("blocks done: {:?}", start.elapsed());
 
         Scene {
             emit: vec![Vec3::zero(); planes.num_planes()],
@@ -317,6 +208,7 @@ impl Scene {
             rad_front: RadBuffer::new(planes.num_planes()),
             rad_back: RadBuffer::new(planes.num_planes()),
             blocks: blocks,
+            extents: Vec::new(),
             //ff: formfactors,
             diffuse: vec![Vec3::new(1f32, 1f32, 1f32); planes.num_planes()],
             planes: planes,
@@ -549,7 +441,7 @@ impl RadWorkblock<'_> {
                 let j = *j as usize;
                 let jrange = j..j + 16;
                 unsafe {
-                    let vff = f32x16::from_slice_unaligned_unchecked(ff);
+                    let vff = f32x16::from_slice_aligned_unchecked(ff);
                     let vr = f32x16::from_slice_aligned_unchecked(r.get_unchecked(jrange.clone()));
                     let vg = f32x16::from_slice_aligned_unchecked(g.get_unchecked(jrange.clone()));
                     let vb = f32x16::from_slice_aligned_unchecked(b.get_unchecked(jrange.clone()));

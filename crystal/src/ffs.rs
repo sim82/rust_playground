@@ -5,6 +5,7 @@ use cgmath::prelude::*;
 use image::ImageBuffer;
 use std::cmp::Ordering;
 use std::fmt::Debug;
+use std::io::{BufReader, BufWriter};
 
 fn normal_cull(pl1: &Plane, pl2: &Plane) -> bool {
     let d1 = pl1.dir;
@@ -122,16 +123,39 @@ pub fn split_formfactors(ff_in: Vec<(u32, u32, f32)>) -> Vec<Vec<(u32, f32)>> {
     ff_out
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Extent {
-    start: u32,
-    ffs: Vec<f32>,
+    pub start: u32,
+    pub ffs: Vec<f32>,
 }
+
 impl Extent {
     fn new(start: u32, ffs: Vec<f32>) -> Self {
         Extent {
             start: start,
             ffs: ffs,
         }
+    }
+
+    pub fn split_aligned(&self, alignments: &[usize]) -> Vec<Extent> {
+        let first = self.start as usize;
+        let mut i = first;
+        let end = first + self.ffs.len();
+        let mut out = Vec::new();
+
+        while i < end {
+            for a in alignments {
+                if i % *a == 0 && end - i >= *a {
+                    out.push(Extent::new(
+                        i as u32,
+                        self.ffs[i - first..i + a - first].to_vec(),
+                    ));
+                    i += a;
+                    break;
+                }
+            }
+        }
+        out
     }
 }
 impl Debug for Extent {
@@ -157,9 +181,36 @@ fn to_extent(v: &Vec<(u32, f32)>) -> Vec<Extent> {
             cur_ext = Some((*pos, Extent::new(*pos as u32, vec![*ff])));
         }
     }
+
+    if let Some((_, ext)) = cur_ext {
+        extents.push(ext);
+    }
     extents
 }
 
 pub fn to_extents(ffs: &Vec<Vec<(u32, f32)>>) -> Vec<Vec<Extent>> {
     ffs.iter().map(|v| to_extent(v)).collect()
+}
+const EXTENT_VERSION: &str = "extents v1";
+
+pub fn load_extents(filename: &str) -> Option<Vec<Vec<Extent>>> {
+    if let Ok(f) = std::fs::File::open(filename) {
+        println!("read from {}", filename);
+        let (file_version, extents): (String, Vec<Vec<Extent>>) =
+            bincode::deserialize_from(BufReader::new(f)).unwrap();
+
+        if file_version == EXTENT_VERSION {
+            println!("done");
+            return Some(extents);
+        }
+        println!("wrong version");
+    }
+    return None;
+}
+
+pub fn write_extents(filename: &str, extents: &Vec<Vec<Extent>>) {
+    if let Ok(file) = std::fs::File::create(filename) {
+        bincode::serialize_into(BufWriter::new(file), &(&EXTENT_VERSION, extents)).unwrap();
+    }
+    println!("wrote {}", filename);
 }
