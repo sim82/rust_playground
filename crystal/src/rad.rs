@@ -96,21 +96,16 @@ impl RadBuffer {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
 pub struct Blocklist {
     single: Vec<(u32, f32)>,
-    vec2: Vec<(u32, [f32; 2])>,
-    vec4: Vec<(u32, [f32; 4])>,
-    vec8: Vec<(u32, [f32; 8])>,
-    vec16: Vec<(u32, [f32; 16])>,
-}
-
-macro_rules! slice_to_array {
-    ($x:expr, $size:expr) => {{
-        let mut array = [0f32; $size];
-        array.copy_from_slice(&$x[..$size]);
-        array
-    }};
+    vec2_ff: Vec<f32x2>, // keep simd vectors densely packed
+    vec4_ff: Vec<f32x4>,
+    vec8_ff: Vec<f32x8>,
+    vec16_ff: Vec<f32x16>,
+    vec2: Vec<u32>,
+    vec4: Vec<u32>,
+    vec8: Vec<u32>,
+    vec16: Vec<u32>,
 }
 
 impl Blocklist {
@@ -119,6 +114,10 @@ impl Blocklist {
         let mut vec8 = Vec::new();
         let mut vec4 = Vec::new();
         let mut vec2 = Vec::new();
+        let mut vec16_ff = Vec::new();
+        let mut vec8_ff = Vec::new();
+        let mut vec4_ff = Vec::new();
+        let mut vec2_ff = Vec::new();
         let mut single = Vec::new();
 
         for ext in extents
@@ -126,10 +125,22 @@ impl Blocklist {
             .flat_map(|x| x.split_aligned(&[16, 8, 4, 2, 1]))
         {
             match ext.ffs.len() {
-                16 => vec16.push((ext.start, slice_to_array!(ext.ffs, 16))),
-                8 => vec8.push((ext.start, slice_to_array!(ext.ffs, 8))),
-                4 => vec4.push((ext.start, slice_to_array!(ext.ffs, 4))),
-                2 => vec2.push((ext.start, slice_to_array!(ext.ffs, 2))),
+                16 => {
+                    vec16.push(ext.start);
+                    vec16_ff.push(f32x16::from_slice_unaligned(&ext.ffs[..]));
+                }
+                8 => {
+                    vec8.push(ext.start);
+                    vec8_ff.push(f32x8::from_slice_unaligned(&ext.ffs[..]));
+                }
+                4 => {
+                    vec4.push(ext.start);
+                    vec4_ff.push(f32x4::from_slice_unaligned(&ext.ffs[..]));
+                }
+                2 => {
+                    vec2.push(ext.start);
+                    vec2_ff.push(f32x2::from_slice_unaligned(&ext.ffs[..]));
+                }
                 1 => single.push((ext.start, ext.ffs[0])),
                 _ => panic!("bad extent size: {}", ext.ffs.len()),
             }
@@ -141,6 +152,10 @@ impl Blocklist {
             vec4: vec4,
             vec8: vec8,
             vec16: vec16,
+            vec2_ff: vec2_ff,
+            vec4_ff: vec4_ff,
+            vec8_ff: vec8_ff,
+            vec16_ff: vec16_ff,
         }
     }
 
@@ -198,7 +213,6 @@ impl Scene {
             .iter()
             .map(|x| Blocklist::from_extents(x))
             .collect::<Vec<_>>();
-        // .clone(); // additional clone optimizes memory layout of ff arrays
         println!("blocks done: {:?}", start.elapsed());
 
         Scene {
@@ -283,7 +297,7 @@ impl Scene {
             .par_iter_mut()
             // .iter_mut()
             .map(|(ref mut r, ref mut g, ref mut b, blocks, emit, diffuse)| {
-                RadWorkblock::new(self.rad_back.slice_full(), (r, g, b), blocks, emit, diffuse)
+                RadWorkblockSimd::new(self.rad_back.slice_full(), (r, g, b), blocks, emit, diffuse)
                     .do_iter()
             })
             .sum::<usize>();
@@ -305,7 +319,7 @@ impl Scene {
     }
 }
 
-struct RadWorkblock<'a> {
+struct RadWorkblockSimd<'a> {
     src: RadSlice<'a>,
     dest: MutRadSlice<'a>,
     blocks: &'a [Blocklist],
@@ -313,15 +327,15 @@ struct RadWorkblock<'a> {
     diffuse: &'a [Vec3],
 }
 
-impl RadWorkblock<'_> {
+impl RadWorkblockSimd<'_> {
     pub fn new<'a>(
         src: RadSlice<'a>,
         dest: MutRadSlice<'a>,
         blocks: &'a [Blocklist],
         emit: &'a [Vec3],
         diffuse: &'a [Vec3],
-    ) -> RadWorkblock<'a> {
-        RadWorkblock {
+    ) -> RadWorkblockSimd<'a> {
+        RadWorkblockSimd {
             src: src,
             dest: dest,
             blocks: blocks,
@@ -355,18 +369,18 @@ impl RadWorkblock<'_> {
             let mut vsum_g = f32x2::splat(0f32);
             let mut vsum_b = f32x2::splat(0f32);
 
-            for (j, ff) in &ff_i.vec2 {
+            for (j, ff) in ff_i.vec2.iter().zip(&ff_i.vec2_ff) {
                 let j = *j as usize;
                 let jrange = j..j + 2;
+                let ff = *ff;
                 unsafe {
-                    let vff = f32x2::from_slice_unaligned_unchecked(ff);
                     let vr = f32x2::from_slice_aligned_unchecked(r.get_unchecked(jrange.clone()));
                     let vg = f32x2::from_slice_aligned_unchecked(g.get_unchecked(jrange.clone()));
                     let vb = f32x2::from_slice_aligned_unchecked(b.get_unchecked(jrange.clone()));
 
-                    vsum_r += vdiffuse_r * vff * vr;
-                    vsum_g += vdiffuse_g * vff * vg;
-                    vsum_b += vdiffuse_b * vff * vb;
+                    vsum_r += vdiffuse_r * ff * vr;
+                    vsum_g += vdiffuse_g * ff * vg;
+                    vsum_b += vdiffuse_b * ff * vb;
                 }
             }
 
@@ -382,19 +396,19 @@ impl RadWorkblock<'_> {
             let mut vsum_g = f32x4::splat(0f32);
             let mut vsum_b = f32x4::splat(0f32);
 
-            for (j, ff) in &ff_i.vec4 {
+            for (j, ff) in ff_i.vec4.iter().zip(&ff_i.vec4_ff) {
                 // unsafe {
                 let j = *j as usize;
                 let jrange = j..j + 4;
+                let ff = *ff;
                 unsafe {
-                    let vff = f32x4::from_slice_unaligned_unchecked(ff);
                     let vr = f32x4::from_slice_aligned_unchecked(r.get_unchecked(jrange.clone()));
                     let vg = f32x4::from_slice_aligned_unchecked(g.get_unchecked(jrange.clone()));
                     let vb = f32x4::from_slice_aligned_unchecked(b.get_unchecked(jrange.clone()));
 
-                    vsum_r += vdiffuse_r * vff * vr;
-                    vsum_g += vdiffuse_g * vff * vg;
-                    vsum_b += vdiffuse_b * vff * vb;
+                    vsum_r += vdiffuse_r * ff * vr;
+                    vsum_g += vdiffuse_g * ff * vg;
+                    vsum_b += vdiffuse_b * ff * vb;
                 }
             }
             rad_r += vsum_r.sum();
@@ -409,19 +423,19 @@ impl RadWorkblock<'_> {
             let mut vsum_g = f32x8::splat(0f32);
             let mut vsum_b = f32x8::splat(0f32);
 
-            for (j, ff) in &ff_i.vec8 {
+            for (j, ff) in ff_i.vec8.iter().zip(&ff_i.vec8_ff) {
                 // unsafe {
                 let j = *j as usize;
                 let jrange = j..j + 8;
+                let ff = *ff;
                 unsafe {
-                    let vff = f32x8::from_slice_unaligned_unchecked(ff);
                     let vr = f32x8::from_slice_aligned_unchecked(r.get_unchecked(jrange.clone()));
                     let vg = f32x8::from_slice_aligned_unchecked(g.get_unchecked(jrange.clone()));
                     let vb = f32x8::from_slice_aligned_unchecked(b.get_unchecked(jrange.clone()));
 
-                    vsum_r += vdiffuse_r * vff * vr;
-                    vsum_g += vdiffuse_g * vff * vg;
-                    vsum_b += vdiffuse_b * vff * vb;
+                    vsum_r += vdiffuse_r * ff * vr;
+                    vsum_g += vdiffuse_g * ff * vg;
+                    vsum_b += vdiffuse_b * ff * vb;
                 }
             }
             rad_r += vsum_r.sum();
@@ -436,19 +450,19 @@ impl RadWorkblock<'_> {
             let mut vsum_g = f32x16::splat(0f32);
             let mut vsum_b = f32x16::splat(0f32);
 
-            for (j, ff) in &ff_i.vec16 {
+            for (j, ff) in ff_i.vec16.iter().zip(&ff_i.vec16_ff) {
                 // unsafe {
                 let j = *j as usize;
                 let jrange = j..j + 16;
+                let ff = *ff;
                 unsafe {
-                    let vff = f32x16::from_slice_aligned_unchecked(ff);
                     let vr = f32x16::from_slice_aligned_unchecked(r.get_unchecked(jrange.clone()));
                     let vg = f32x16::from_slice_aligned_unchecked(g.get_unchecked(jrange.clone()));
                     let vb = f32x16::from_slice_aligned_unchecked(b.get_unchecked(jrange.clone()));
 
-                    vsum_r += vdiffuse_r * vff * vr;
-                    vsum_g += vdiffuse_g * vff * vg;
-                    vsum_b += vdiffuse_b * vff * vb;
+                    vsum_r += vdiffuse_r * ff * vr;
+                    vsum_g += vdiffuse_g * ff * vg;
+                    vsum_b += vdiffuse_b * ff * vb;
                 }
             }
             rad_r += vsum_r.sum();
