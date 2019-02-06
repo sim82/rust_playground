@@ -2,6 +2,7 @@
 name = "render_bits"
 version = "0.1.0"
 authors = ["sim82 <simberger@gmail.com>"]
+edition = "2018"
 
 [dependencies]
 custom_error = "1.3"

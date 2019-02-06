@@ -222,7 +222,7 @@ impl Scene {
             rad_front: RadBuffer::new(planes.num_planes()),
             rad_back: RadBuffer::new(planes.num_planes()),
             blocks: blocks,
-            extents: Vec::new(),
+            extents: extents,
             //ff: formfactors,
             diffuse: vec![Vec3::new(1f32, 1f32, 1f32); planes.num_planes()],
             planes: planes,
@@ -263,6 +263,32 @@ impl Scene {
 
     pub fn do_rad(&mut self) {
         self.do_rad_blocks();
+        //self.do_rad_extents();
+    }
+
+    pub fn do_rad_extents(&mut self) {
+        std::mem::swap(&mut self.rad_front, &mut self.rad_back);
+
+        for (i, extents) in self.extents.iter().enumerate() {
+            let mut rad_r = 0f32;
+            let mut rad_g = 0f32;
+            let mut rad_b = 0f32;
+            let diffuse = self.diffuse[i as usize];
+
+            let RadBuffer { r, g, b } = &self.rad_back;
+            for ffs::Extent { start, ffs } in extents {
+                for (j, ff) in ffs.iter().enumerate() {
+                    rad_r += r[j + *start as usize] * diffuse.x * *ff;
+                    rad_g += g[j + *start as usize] * diffuse.y * *ff;
+                    rad_b += b[j + *start as usize] * diffuse.z * *ff;
+                }
+                self.pints += ffs.len();
+            }
+
+            self.rad_front.r[i as usize] = self.emit[i as usize].x + rad_r;
+            self.rad_front.g[i as usize] = self.emit[i as usize].y + rad_g;
+            self.rad_front.b[i as usize] = self.emit[i as usize].z + rad_b;
+        }
     }
 
     pub fn do_rad_blocks(&mut self) {
