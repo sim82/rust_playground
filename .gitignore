@@ -1,2 +1,5 @@
 /target
 **/*.rs.bk
+*.sublime-workspace
+extents.bin
+perf.data*
