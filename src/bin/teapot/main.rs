@@ -1,4 +1,3 @@
-extern crate render_bits;
 mod data;
 
 fn main() {

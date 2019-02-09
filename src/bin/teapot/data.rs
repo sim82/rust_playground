@@ -1,8 +1,6 @@
 #![allow(dead_code)]
 
-
-extern crate render_bits;
-use self::render_bits::{Normal, Vertex};
+use rust_playground::render_bits::{Normal, Vertex};
 
 pub const VERTICES: [Vertex; 531] = [
     Vertex {

@@ -1,13 +1,9 @@
-extern crate cgmath;
-extern crate crystal;
-extern crate rand;
-extern crate render_bits;
-extern crate vulkano;
+use rust_playground::{crystal, render_bits};
 
-use render_bits::InputState;
-use render_bits::PlayerFlyModel;
-use render_bits::RenderDelegate;
-use render_bits::RenderTest;
+use crate::render_bits::InputState;
+use crate::render_bits::PlayerFlyModel;
+use crate::render_bits::RenderDelegate;
+use crate::render_bits::RenderTest;
 
 use crystal::rad::Scene;
 use crystal::{Bitmap, PlanesSep};
@@ -322,6 +318,7 @@ impl RenderDelegate for CrystalRenderDelgate {
         let scene;
         {
             let bm = crystal::read_map("hidden_ramp.txt").expect("could not read file");
+
             let mut planes = PlanesSep::new();
             planes.create_planes(&bm);
             // planes.print();

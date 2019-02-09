@@ -1,25 +1,12 @@
-extern crate cgmath;
-extern crate ndarray;
-#[macro_use]
-extern crate serde_derive;
-extern crate bincode;
-extern crate image;
-extern crate packed_simd;
-extern crate serde;
-extern crate serde_json;
-#[macro_use]
-extern crate itertools;
-extern crate rayon;
+pub mod ffs;
+pub mod rad;
+pub mod util;
 
 use cgmath::prelude::*;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::iter::Iterator;
 use std::path::Path;
-
-pub mod ffs;
-pub mod rad;
-pub mod util;
 
 pub type BlockMap = ndarray::Array3<bool>;
 

@@ -1,17 +1,10 @@
+use super::{ffs, util, PlanesSep};
 #[allow(unused_imports)]
 use super::{Bitmap, BlockMap, DisplayWrap, Point3, Point3i, Vec3, Vec3i};
-use super::{Dir, Plane, PlanesSep};
 use cgmath::prelude::*;
-use image::ImageBuffer;
 use packed_simd::{f32x16, f32x2, f32x4, f32x8};
-
-use crate::ffs;
-use crate::util;
-use std::cmp::Ordering;
-use std::io::{BufReader, BufWriter};
-use std::time::Instant;
-
 use rayon::prelude::*;
+use std::time::Instant;
 
 pub struct RadBuffer {
     pub r: Vec<f32>,

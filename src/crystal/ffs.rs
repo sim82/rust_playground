@@ -1,6 +1,4 @@
-use super::{BlockMap, Vec3};
-use super::{Dir, Plane, PlanesSep};
-use crate::util;
+use super::{util, BlockMap, Dir, Plane, PlanesSep, Vec3};
 use cgmath::prelude::*;
 use image::ImageBuffer;
 use std::cmp::Ordering;

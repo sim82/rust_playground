@@ -12,8 +12,7 @@
 // While graphics cards have traditionally been used for graphical operations, over time they have
 // been more or more used for general-purpose operations as well. This is called "General-Purpose
 // GPU", or *GPGPU*. This is what this example demonstrates.
-extern crate crystal;
-extern crate vulkano;
+use rust_playground::crystal;
 
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
 use vulkano::command_buffer::AutoCommandBufferBuilder;
@@ -26,10 +25,10 @@ use vulkano::sync::GpuFuture;
 
 use std::sync::Arc;
 
-use crystal::ffs;
+use crate::crystal::ffs;
 
 fn main() {
-    let ffs = ffs::load_extents("extents.bin");
+    let ffs = ffs::load_extents("extents.bin").unwrap();
 
     // As with other examples, the first step is to create an instance.
     let instance = Instance::new(None, &InstanceExtensions::none(), None).unwrap();
