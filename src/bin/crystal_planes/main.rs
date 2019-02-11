@@ -241,7 +241,7 @@ impl RadWorker {
                 // println!("size: {}", colors_cpu.len());
                 // let old_cap = colors_buffer_pool.capacity();
                 let chunk = colors_buffer_pool
-                    .chunk(colors_cpu.iter().map(|x| *x))
+                    .chunk(colors_cpu.iter().cloned())
                     .unwrap();
                 // println!("size: {} -> {}", old_cap, colors_buffer_pool.capacity());
 

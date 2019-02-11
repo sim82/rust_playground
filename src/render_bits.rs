@@ -199,6 +199,10 @@ impl RenderTest {
         };
 
         let (device, mut queues) = {
+            // for phys in PhysicalDevice::enumerate(&instance) {
+            //     let caps = surface.capabilities(phys.clone());
+            //     println!("caps: {:?}", caps);
+            // }
             let physical = PhysicalDevice::enumerate(&instance).next().unwrap();
 
             println!(
@@ -231,7 +235,14 @@ impl RenderTest {
 
             let caps = surface.capabilities(physical).unwrap();
             let usage = caps.supported_usage_flags;
-            let format = caps.supported_formats[0].0;
+            let mut format = caps.supported_formats[0].0;
+            for (f, c) in caps.supported_formats.iter().cloned() {
+                if c == vulkano::swapchain::ColorSpace::SrgbNonLinear
+                    || f == vulkano::format::Format::B8G8R8A8Unorm
+                {
+                    format = f;
+                }
+            }
             let alpha = caps.supported_composite_alpha.iter().next().unwrap();
 
             Swapchain::new(
