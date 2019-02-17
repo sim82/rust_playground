@@ -8,6 +8,9 @@ build = "build.rs"
 [features]
 capnp_bits = ["capnp", "capnpc"]
 
+[profile.release]
+debug = true
+
 [dependencies]
 bincode = "1.0"
 capnp = {version = "0.9", optional = true }

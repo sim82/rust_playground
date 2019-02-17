@@ -15,5 +15,5 @@ void main() {
     mat4 worldview = uniforms.view * uniforms.world;
     v_color = color;
     gl_Position = uniforms.proj * worldview * vec4(position, 1.0);
-    gl_Position.y = -gl_Position.y;
+   // gl_Position.y = -gl_Position.y;
 }

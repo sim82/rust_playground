@@ -233,7 +233,11 @@ impl RenderTest {
         let (swapchain, images) = {
             let physical = PhysicalDevice::enumerate(&instance).next().unwrap();
 
+            // for p in PhysicalDevice::enumerate(&instance) {
+            //     println!("{:?}", p);
+            // }
             let caps = surface.capabilities(physical).unwrap();
+
             let usage = caps.supported_usage_flags;
             let mut format = caps.supported_formats[0].0;
             for (f, c) in caps.supported_formats.iter().cloned() {
@@ -275,7 +279,7 @@ impl RenderTest {
                     depth: {
                         load: Clear,
                         store: DontCare,
-                        format: Format::D16Unorm,
+                        format: Format::D32Sfloat,
                         samples: 1,
                     }
                 },
@@ -328,7 +332,7 @@ impl RenderTest {
         let dimensions = self.images[0].dimensions();
 
         let depth_buffer =
-            AttachmentImage::transient(self.device.clone(), dimensions, Format::D16Unorm).unwrap();
+            AttachmentImage::transient(self.device.clone(), dimensions, Format::D32Sfloat).unwrap();
 
         let framebuffers = self
             .images

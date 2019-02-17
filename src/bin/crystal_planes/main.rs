@@ -435,7 +435,7 @@ impl RenderDelegate for CrystalRenderDelgate {
                 .vertex_input(TwoBuffersDefinition::<Vertex, Color>::new())
                 .vertex_shader(vs.main_entry_point(), ())
                 .triangle_list()
-                .front_face_counter_clockwise() // face winding swapped by y-swap in vertex shader...
+                .front_face_counter_clockwise() // face winding swapped by y-invert
                 .cull_mode_back()
                 .viewports_dynamic_scissors_irrelevant(1)
                 .viewports(iter::once(Viewport {
@@ -444,6 +444,7 @@ impl RenderDelegate for CrystalRenderDelgate {
                     depth_range: 0.0..1.0,
                 }))
                 .fragment_shader(fs.main_entry_point(), ())
+                // .depth_stencil_simple_depth()
                 .depth_stencil_simple_depth()
                 .render_pass(Subpass::from(render_test.render_pass.clone(), 0).unwrap())
                 .build(render_test.device.clone())
@@ -560,7 +561,6 @@ impl RenderDelegate for CrystalRenderDelgate {
 
         Box::new(vulkano::sync::now(render_test.device.clone()))
     }
-
     fn frame(
         &mut self,
         render_test: &RenderTest,
@@ -593,12 +593,20 @@ impl RenderDelegate for CrystalRenderDelgate {
                     // note: this teapot was meant for OpenGL where the origin is at the lower left
                     //       instead the origin is at the upper left in Vulkan, so we reverse the Y axis
                     let aspect_ratio = dimensions[0] as f32 / dimensions[1] as f32;
-                    let proj = cgmath::perspective(
-                        Rad(std::f32::consts::FRAC_PI_2),
-                        aspect_ratio,
-                        0.01,
-                        100.0,
-                    ) * Matrix4::from_nonuniform_scale(1f32, 1f32, -1f32);
+                    // let proj = cgmath::perspective(
+                    //     Rad(std::f32::consts::FRAC_PI_2),
+                    //     aspect_ratio,
+                    //     0.01,
+                    //     1000.0,
+                    // ) * Matrix4::from_nonuniform_scale(1f32, -1f32, -1f32);
+                    let proj =
+                        perspective(Rad(std::f32::consts::FRAC_PI_2), aspect_ratio, 0.01, 100.0)
+                            * Matrix4::from_nonuniform_scale(1f32, 1f32, -1f32);
+
+                    // println!(
+                    //     "mat: {:?}",
+                    //     Matrix4::from_nonuniform_scale(1f32, -1f32, -1f32)
+                    // );
 
                     let uniform_data = vs::ty::Data {
                         world: <Matrix4<f32> as Transform<Point3>>::one().into(), // from(rotation).into(),
@@ -661,6 +669,28 @@ impl RenderDelegate for CrystalRenderDelgate {
             }
         }
     }
+}
+
+fn perspective(fov: Rad<f32>, a: f32, zn: f32, zf: f32) -> Matrix4<f32> {
+    #[rustfmt::skip]
+    let clip = Matrix4::new(
+        1.0f32,  0.0f32, 0.0f32, 0.0f32, 
+        0.0f32, -1.0f32, 0.0f32, 0.0f32, 
+        0.0f32,  0.0f32, 0.5f32, 0.0f32, 
+        0.0f32,  0.0f32, 0.5f32, 1.0f32,
+    );
+
+    let f = Rad::cot(fov / 2f32);
+
+    #[rustfmt::skip]
+    let proj = Matrix4::new(
+        f / a,    0f32,    0f32,                          0f32,
+        0f32,     f,       0f32,                          0f32, 
+        0f32,     0f32,    (zf + zn) / (zn - zf),        -1f32, 
+        0f32,     0f32,    (2f32 * zn * zf) / (zn - zf),  0f32,
+    );
+    // let proj = cgmath::perspective(fov, aspect_ratio, near_plane, far_plane);
+    clip * proj
 }
 
 fn main() {
