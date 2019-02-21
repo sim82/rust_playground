@@ -49,9 +49,9 @@ impl TestDelgate {
     fn new() -> TestDelgate {
         TestDelgate {
             player_model: PlayerFlyModel::new(
-                Point3::new(31f32, 12f32, 4f32),
-                cgmath::Deg(-65f32),
-                cgmath::Deg(35f32),
+                Point3::new(17f32, 14f32, 27f32),
+                cgmath::Deg(13f32),
+                cgmath::Deg(-22f32),
             ),
             vertex_buffer: None,
             colors_buffer_gpu: None,
@@ -261,19 +261,17 @@ impl RenderDelegate for TestDelgate {
                     //     100.0,
                     // ) * Matrix4::from_nonuniform_scale(1f32, 1f32, -1f32);
                     let proj =
-                        perspective(Rad(std::f32::consts::FRAC_PI_2), aspect_ratio, 0.01, 100.0);
+                        perspective(Rad(std::f32::consts::FRAC_PI_2), aspect_ratio, 0.01, 100.0)
+                            * Matrix4::from_nonuniform_scale(1f32, 1f32, 1f32);
 
-                    println!("matrix1: {:?}", proj);
-                    // let proj = proj * Matrix4::from_nonuniform_scale(1f32, 1f32, -1f32);
-                    println!("matrix2: {:?}", proj);
-
+                    println!("{:?}", self.player_model);
                     let unity = Matrix4::from_scale(1f32);
-                    let transform = Matrix4::from_translation(Vector3::new(0f32, 0f32, 2f32));
+                    let transform = Matrix4::from_translation(Vector3::new(0f32, 0f32, -5f32));
                     let uniform_data = vs::ty::Data {
                         //world: <Matrix4<f32> as Transform<Point3>>::one().into(), // from(rotation).into(),
-                        //view: self.player_model.get_view_matrix().into(), //(view * scale).into(),
+                        view: self.player_model.get_view_matrix().into(), //(view * scale).into(),
                         world: unity.into(),
-                        view: transform.into(),
+                        // view: transform.into(),
                         proj: proj.into(),
                     };
 
@@ -334,27 +332,27 @@ impl RenderDelegate for TestDelgate {
     }
 }
 
-fn perspective(fov: Rad<f32>, aspect_ratio: f32, near_plane: f32, far_plane: f32) -> Matrix4<f32> {
+fn perspective(fov: Rad<f32>, a: f32, zn: f32, zf: f32) -> Matrix4<f32> {
+    #[rustfmt::skip]
+    let clip = Matrix4::new(
+        1.0f32,  0.0f32, 0.0f32, 0.0f32, 
+        0.0f32, -1.0f32, 0.0f32, 0.0f32, 
+        0.0f32,  0.0f32, 0.5f32, 0.0f32, 
+        0.0f32,  0.0f32, 0.5f32, 1.0f32,
+    );
+
     let f = Rad::cot(fov / 2f32);
 
-    Matrix4::new(
-        f / aspect_ratio,
-        0f32,
-        0f32,
-        0f32,
-        0f32,
-        f,
-        0f32,
-        0f32,
-        0f32,
-        0f32,
-        -far_plane / (near_plane - far_plane),
-        1f32,
-        0f32,
-        0f32,
-        (near_plane * far_plane) / (near_plane - far_plane),
-        0f32,
-    )
+    #[rustfmt::skip]
+    let proj = Matrix4::new(
+        f / a,    0f32,    0f32,                          0f32,
+        0f32,     -f,       0f32,                          0f32, 
+        0f32,     0f32,    zf / (zn - zf),         -1f32, 
+        0f32,     0f32,    (zn * zf) / (zn - zf),  0f32,
+    );
+    // let proj = cgmath::perspective(fov, aspect_ratio, near_plane, far_plane);
+    // clip * proj
+    proj
 }
 
 fn main() {

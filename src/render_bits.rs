@@ -123,10 +123,10 @@ impl PlayerFlyModel {
     }
 
     pub fn apply_delta_lon(&mut self, d: Deg<f32>) {
-        self.lon += d;
+        self.lon += -d; // rhs coordinate system -> positive lat means turn left
     }
     pub fn apply_delta_lat(&mut self, d: Deg<f32>) {
-        self.lat = num_traits::clamp(self.lat + d, Deg(-90.0), Deg(90.0));
+        self.lat = num_traits::clamp(self.lat - d, Deg(-90.0), Deg(90.0));
     }
     pub fn get_rotation_lon(&self) -> Matrix4<f32> {
         Matrix4::from_angle_y(self.lon)
@@ -136,7 +136,7 @@ impl PlayerFlyModel {
     }
     pub fn apply_move_forward(&mut self, d: f32) {
         self.pos +=
-            (self.get_rotation_lon() * self.get_rotation_lat() * Vec4::new(0.0, 0.0, d, 0.0))
+            (self.get_rotation_lon() * self.get_rotation_lat() * Vec4::new(0.0, 0.0, -d, 0.0)) // rhs coord system -> forward is negative-z
                 .truncate();
     }
     pub fn apply_move_right(&mut self, d: f32) {

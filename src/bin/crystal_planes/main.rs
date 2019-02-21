@@ -292,9 +292,9 @@ impl CrystalRenderDelgate {
     fn new() -> CrystalRenderDelgate {
         CrystalRenderDelgate {
             player_model: PlayerFlyModel::new(
-                Point3::new(31f32, 12f32, 4f32),
-                cgmath::Deg(-65f32),
-                cgmath::Deg(35f32),
+                Point3::new(17f32, 14f32, 27f32),
+                cgmath::Deg(13f32),
+                cgmath::Deg(-22f32),
             ),
             vertex_buffer: None,
             colors_buffer_gpu: None,
@@ -435,7 +435,7 @@ impl RenderDelegate for CrystalRenderDelgate {
                 .vertex_input(TwoBuffersDefinition::<Vertex, Color>::new())
                 .vertex_shader(vs.main_entry_point(), ())
                 .triangle_list()
-                .front_face_counter_clockwise() // face winding swapped by y-invert
+                .front_face_clockwise() // face winding swapped by y-invert
                 .cull_mode_back()
                 .viewports_dynamic_scissors_irrelevant(1)
                 .viewports(iter::once(Viewport {
@@ -600,9 +600,9 @@ impl RenderDelegate for CrystalRenderDelgate {
                     //     1000.0,
                     // ) * Matrix4::from_nonuniform_scale(1f32, -1f32, -1f32);
                     let proj =
-                        perspective(Rad(std::f32::consts::FRAC_PI_2), aspect_ratio, 0.01, 100.0)
-                            * Matrix4::from_nonuniform_scale(1f32, 1f32, -1f32);
-
+                        perspective(Rad(std::f32::consts::FRAC_PI_2), aspect_ratio, 0.01, 100.0);
+                    // * Matrix4::from_nonuniform_scale(1f32, 1f32, -1f32);
+                    println!("{:?}", self.player_model);
                     // println!(
                     //     "mat: {:?}",
                     //     Matrix4::from_nonuniform_scale(1f32, -1f32, -1f32)
@@ -685,12 +685,13 @@ fn perspective(fov: Rad<f32>, a: f32, zn: f32, zf: f32) -> Matrix4<f32> {
     #[rustfmt::skip]
     let proj = Matrix4::new(
         f / a,    0f32,    0f32,                          0f32,
-        0f32,     f,       0f32,                          0f32, 
-        0f32,     0f32,    (zf + zn) / (zn - zf),        -1f32, 
-        0f32,     0f32,    (2f32 * zn * zf) / (zn - zf),  0f32,
+        0f32,     -f,       0f32,                          0f32, 
+        0f32,     0f32,    zf / (zn - zf),         -1f32, 
+        0f32,     0f32,    (zn * zf) / (zn - zf),  0f32,
     );
     // let proj = cgmath::perspective(fov, aspect_ratio, near_plane, far_plane);
-    clip * proj
+    // clip * proj
+    proj
 }
 
 fn main() {
