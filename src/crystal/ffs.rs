@@ -87,6 +87,7 @@ pub fn setup_formfactors(planes: &PlanesSep, bitmap: &BlockMap) -> Vec<(u32, u32
     ffs
 }
 
+#[allow(dead_code)]
 fn write_ffs_debug(ffs: &Vec<(u32, u32, f32)>) {
     let width = ffs.iter().map(|(x, _, _)| *x).max().unwrap_or(0) + 1;
     let height = ffs.iter().map(|(_, y, _)| *y).max().unwrap_or(0) + 1;

@@ -1,15 +1,14 @@
 use rust_playground::render_bits;
 
 use crate::render_bits::InputState;
-use crate::render_bits::PlayerFlyModel;
 use crate::render_bits::RenderDelegate;
 use crate::render_bits::RenderTest;
 
-use vulkano::buffer::cpu_pool::CpuBufferPoolChunk;
 use vulkano::buffer::{BufferUsage, CpuBufferPool, ImmutableBuffer};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::framebuffer::{FramebufferAbstract, Subpass};
+use vulkano::image::StorageImage;
 use vulkano::pipeline::vertex::TwoBuffersDefinition;
 use vulkano::pipeline::viewport::Viewport;
 use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
@@ -18,50 +17,37 @@ use vulkano::sync::GpuFuture;
 use cgmath::prelude::*;
 use cgmath::{Matrix4, Rad, Vector3};
 
-use rand::prelude::*;
-use render_bits::{Normal, Vertex};
+use render_bits::Vertex;
 use std::iter;
-use std::sync::{
-    mpsc::{channel, sync_channel, Receiver, Sender},
-    Arc,
-};
-use std::thread::spawn;
-use std::thread::JoinHandle;
+use std::sync::Arc;
 use std::time::Instant;
+
+use glyph_brush::{BrushAction, BrushError, GlyphBrushBuilder, Section};
 
 #[derive(Copy, Clone)]
 pub struct Color {
     pub color: (f32, f32, f32),
 }
-type Point3 = cgmath::Point3<f32>;
 
 vulkano::impl_vertex!(Color, color);
 
 struct TestDelgate {
-    player_model: PlayerFlyModel,
     vertex_buffer: Option<Arc<ImmutableBuffer<[Vertex]>>>,
     colors_buffer_gpu: Option<Arc<ImmutableBuffer<[Color]>>>,
     index_buffer: Option<Arc<ImmutableBuffer<[u32]>>>,
     uniform_buffer: Option<CpuBufferPool<vs::ty::Data>>,
+    glyph_image: Option<Arc<StorageImage<vulkano::format::R8Uint>>>,
     last_time: std::time::Instant,
 }
 impl TestDelgate {
     fn new() -> TestDelgate {
         TestDelgate {
-            player_model: PlayerFlyModel::new(
-                Point3::new(17f32, 14f32, 27f32),
-                cgmath::Deg(13f32),
-                cgmath::Deg(-22f32),
-            ),
             vertex_buffer: None,
             colors_buffer_gpu: None,
-            // colors_buffer_pool: None,
-            // colors_buffer: None,
             index_buffer: None,
             uniform_buffer: None,
-            // colors_cpu: Vec::new(),
+            glyph_image: None,
             last_time: Instant::now(),
-            // scene: None,
         }
     }
 }
@@ -70,49 +56,135 @@ impl RenderDelegate for TestDelgate {
     fn init(&mut self, render_test: &RenderTest) -> Box<vulkano::sync::GpuFuture> {
         //self.vertex_buffer = vulkano::buffer::CpuAccessibleBuffer::from_data(device: Arc<Device>, usage: BufferUsage, data: T)
 
+        let dejavu: &[u8] = include_bytes!("DejaVuSans.ttf");
+        let mut glyph_brush = GlyphBrushBuilder::using_font_bytes(dejavu).build::<u32>();
+
+        glyph_brush.queue(Section {
+            text: "MMMHello glyph_brush",
+            scale: glyph_brush::rusttype::Scale::uniform(64f32),
+            ..Section::default()
+        });
+        // glyph_brush.queue(some_other_section);
+        let dimensions = render_test.dimension();
+        // let mut x = 0;
+
+        self.glyph_image = Some(
+            StorageImage::new(
+                render_test.device.clone(),
+                vulkano::image::Dimensions::Dim2d {
+                    width: 256,
+                    height: 256,
+                },
+                vulkano::format::R8Uint,
+                render_test.device.active_queue_families(),
+            )
+            .unwrap(),
+        );
+
+        let verts = std::cell::RefCell::new(Vec::new());
+        let mut indices = Vec::new();
+        match glyph_brush.process_queued(
+            (dimensions[0], dimensions[1]),
+            |rect, tex_data| {
+                if let Some(image) = &self.glyph_image {
+                    // image.
+                    println!(
+                        "blit: {:?}",
+                        (image as &vulkano::image::ImageAccess).supports_blit_destination()
+                    );
+                }
+            },
+            |vertex_data| {
+                let minx = vertex_data.pixel_coords.min.x as f32;
+                let miny = vertex_data.pixel_coords.min.y as f32;
+                let maxx = vertex_data.pixel_coords.max.x as f32;
+                let maxy = vertex_data.pixel_coords.max.y as f32;
+
+                println!("to_vertex: {:?}", vertex_data);
+                // x += 1;
+                let mut verts = verts.borrow_mut();
+                let first = verts.len();
+                verts.push(Vertex {
+                    position: (minx, miny, 0f32),
+                });
+                verts.push(Vertex {
+                    position: (maxx, miny, 0f32),
+                });
+                verts.push(Vertex {
+                    position: (maxx, maxy, 0f32),
+                });
+                verts.push(Vertex {
+                    position: (minx, maxy, 0f32),
+                });
+
+                first as u32
+            },
+        ) {
+            Ok(BrushAction::Draw(vertices)) => {
+                // Draw new vertices.
+                //println!("draw {:?}", vertices);
+
+                indices.append(
+                    &mut vertices
+                        .iter()
+                        .flat_map(|v| vec![*v, *v + 1, *v + 2, *v, *v + 2, *v + 3])
+                        .collect(),
+                )
+            }
+            Ok(BrushAction::ReDraw) => {
+                // Re-draw last frame's vertices unmodified.
+                println!("redraw");
+            }
+            Err(BrushError::TextureTooSmall { suggested }) => {
+                println!("too small {:?}", suggested);
+                // Enlarge texture + glyph_brush texture cache and retry.
+            }
+        }
         let (vb, vb_fut) = vulkano::buffer::ImmutableBuffer::from_iter(
-            [
-                Vertex {
-                    position: (0f32, 0f32, 0f32), // 0
-                },
-                Vertex {
-                    position: (1f32, 0f32, 0f32), // 1
-                },
-                Vertex {
-                    position: (0f32, 1f32, 0f32), // 2
-                },
-                Vertex {
-                    position: (1f32, 1f32, 0f32), // 3
-                },
-                Vertex {
-                    position: (0f32, 0f32, 1f32), // 4
-                },
-                Vertex {
-                    position: (1f32, 0f32, 1f32), // 5
-                },
-                Vertex {
-                    position: (0f32, 1f32, 1f32), // 6
-                },
-                Vertex {
-                    position: (1f32, 1f32, 1f32), // 7
-                },
-            ]
-            .iter()
-            .cloned(),
+            verts.borrow().iter().cloned(),
             vulkano::buffer::BufferUsage::vertex_buffer(),
             render_test.queue.clone(),
         )
         .unwrap();
+        println!("indices {:?}", indices);
+        // let (vb, vb_fut) = vulkano::buffer::ImmutableBuffer::from_iter(
+        //     [
+        //         Vertex {
+        //             position: (0f32, 0f32, 0f32),
+        //         },
+        //         Vertex {
+        //             position: (100f32, 0f32, 0f32),
+        //         },
+        //         Vertex {
+        //             position: (100f32, 100f32, 0f32),
+        //         },
+        //         Vertex {
+        //             position: (0f32, 100f32, 0f32),
+        //         },
+        //         Vertex {
+        //             position: (150f32, 0f32, 0f32),
+        //         },
+        //         Vertex {
+        //             position: (250f32, 0f32, 0f32),
+        //         },
+        //         Vertex {
+        //             position: (250f32, 100f32, 0f32),
+        //         },
+        //         Vertex {
+        //             position: (150f32, 100f32, 0f32),
+        //         },
+        //     ]
+        //     .iter()
+        //     .cloned(),
+        //     vulkano::buffer::BufferUsage::vertex_buffer(),
+        //     render_test.queue.clone(),
+        // )
+        // .unwrap();
         self.vertex_buffer = Some(vb);
 
         // hollow half cube
         let (ib, ib_fut) = vulkano::buffer::ImmutableBuffer::from_iter(
-            [
-                /*xy*/ 0, 2, 3, 0, 3, 1, /*yz*/ 0, 4, 6, 0, 6, 2, /*xz*/ 0, 1, 5, 0,
-                5, 4,
-            ]
-            .iter()
-            .cloned(),
+            indices.iter().cloned(),
             vulkano::buffer::BufferUsage::index_buffer(),
             render_test.queue.clone(),
         )
@@ -128,22 +200,22 @@ impl RenderDelegate for TestDelgate {
                     color: (1f32, 0f32, 0f32), // 1
                 },
                 Color {
-                    color: (0f32, 1f32, 0f32), // 2
+                    color: (1f32, 1f32, 0f32), // 2
                 },
                 Color {
-                    color: (1f32, 1f32, 0f32), // 3
+                    color: (0f32, 1f32, 0f32), // 3
                 },
                 Color {
                     color: (0f32, 0f32, 1f32), // 4
                 },
                 Color {
-                    color: (1f32, 0f32, 1f32), // 5
+                    color: (1f32, 0f32, 0f32), // 5
                 },
                 Color {
-                    color: (0f32, 1f32, 1f32), // 6
+                    color: (1f32, 1f32, 0f32), // 6
                 },
                 Color {
-                    color: (1f32, 1f32, 1f32), // 7
+                    color: (0f32, 1f32, 0f32), // 7
                 },
             ]
             .iter()
@@ -195,30 +267,10 @@ impl RenderDelegate for TestDelgate {
         )
     }
 
-    fn update(&mut self, render_test: &RenderTest, input_state: &InputState) -> Box<GpuFuture> {
+    fn update(&mut self, render_test: &RenderTest, _input_state: &InputState) -> Box<GpuFuture> {
         // let now = Instant::now();
         // let d_time = now - self.last_time;
         self.last_time = Instant::now();
-
-        self.player_model.apply_delta_lon(input_state.d_lon);
-        self.player_model.apply_delta_lat(input_state.d_lat);
-
-        const FORWARD_VEL: f32 = 1.0 / 60.0 * 2.0;
-        let boost = if input_state.run { 3.0 } else { 1.0 };
-        if input_state.forward {
-            self.player_model.apply_move_forward(FORWARD_VEL * boost);
-        }
-        if input_state.backward {
-            self.player_model.apply_move_forward(-FORWARD_VEL * boost);
-        }
-        if input_state.left {
-            self.player_model.apply_move_right(-FORWARD_VEL * boost);
-        }
-        if input_state.right {
-            self.player_model.apply_move_right(FORWARD_VEL * boost);
-        }
-
-        // println!("{:?}", self.player_model);
 
         Box::new(vulkano::sync::now(render_test.device.clone()))
     }
@@ -252,23 +304,12 @@ impl RenderDelegate for TestDelgate {
             ) => {
                 let uniform_buffer_subbuffer = {
                     let dimensions = render_test.dimension();
-                    let aspect_ratio = dimensions[0] as f32 / dimensions[1] as f32;
                     let unity = Matrix4::from_scale(1f32);
                     let uniform_data = vs::ty::Data {
-                        //world: <Matrix4<f32> as Transform<Point3>>::one().into(), // from(rotation).into(),
-                        view: self.player_model.get_view_matrix().into(), //(view * scale).into(),
+                        view: unity.into(),
                         world: unity.into(),
-                        // view: transform.into(),
-                        proj: render_bits::math::perspective_projection(
-                            Rad(std::f32::consts::FRAC_PI_2),
-                            aspect_ratio,
-                            0.01,
-                            100.0,
-                        )
-                        // proj: render_bits::math::orthograpic_projection(
-                        //     -10f32, 10f32, -10f32, 10f32, 0.01f32, 100.0f32,
-                        // )
-                        .into(),
+                        proj: render_bits::math::canvas_projection(dimensions[0], dimensions[1])
+                            .into(),
                     };
 
                     uniform_buffer.next(uniform_data).unwrap()
@@ -342,13 +383,13 @@ fn main() {
 pub mod vs {
     vulkano_shaders::shader! {
         ty: "vertex",
-        path: "src/bin/geom_shader/debug_vert.glsl"
+        path: "src/bin/font/debug_vert.glsl"
     }
 }
 
 pub mod fs {
     vulkano_shaders::shader! {
         ty: "fragment",
-        path: "src/bin/geom_shader/debug_frag.glsl"
+        path: "src/bin/font/debug_frag.glsl"
     }
 }

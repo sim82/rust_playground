@@ -39,6 +39,8 @@ use cgmath::{Deg, Matrix4, Point3, Vector4};
 
 use std::sync::Arc;
 
+pub mod math;
+
 #[derive(Copy, Clone)]
 pub struct Vertex {
     pub position: (f32, f32, f32),

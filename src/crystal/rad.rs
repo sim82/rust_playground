@@ -47,10 +47,10 @@ impl RadBuffer {
         }
     }
 
-    fn slice(&self, i: std::ops::Range<usize>) -> RadSlice<'_> {
+    pub fn slice(&self, i: std::ops::Range<usize>) -> RadSlice<'_> {
         (&self.r[i.clone()], &self.g[i.clone()], &self.b[i.clone()])
     }
-    fn slice_mut(&mut self, i: std::ops::Range<usize>) -> MutRadSlice<'_> {
+    pub fn slice_mut(&mut self, i: std::ops::Range<usize>) -> MutRadSlice<'_> {
         (
             &mut self.r[i.clone()],
             &mut self.g[i.clone()],
@@ -58,14 +58,14 @@ impl RadBuffer {
         )
     }
     // this is a bit redundant, but found no better way since SliceIndex is non-copy and thus cannot be used for indexing multiple Vecs
-    fn slice_full(&self) -> RadSlice<'_> {
+    pub fn slice_full(&self) -> RadSlice<'_> {
         (&self.r[..], &self.g[..], &self.b[..])
     }
-    fn slice_full_mut(&mut self) -> MutRadSlice<'_> {
+    pub fn slice_full_mut(&mut self) -> MutRadSlice<'_> {
         (&mut self.r[..], &mut self.g[..], &mut self.b[..])
     }
 
-    fn chunks_mut(&mut self, size: usize) -> impl Iterator<Item = MutRadSlice<'_>> {
+    pub fn chunks_mut(&mut self, size: usize) -> impl Iterator<Item = MutRadSlice<'_>> {
         itertools::izip!(
             self.r.chunks_mut(size),
             self.g.chunks_mut(size),
@@ -102,7 +102,7 @@ pub struct Blocklist {
 }
 
 impl Blocklist {
-    fn from_extents(extents: &Vec<ffs::Extent>) -> Blocklist {
+    pub fn from_extents(extents: &Vec<ffs::Extent>) -> Blocklist {
         let mut vec16 = Vec::new();
         let mut vec8 = Vec::new();
         let mut vec4 = Vec::new();
@@ -152,7 +152,7 @@ impl Blocklist {
         }
     }
 
-    fn print_stat(&self) {
+    pub fn print_stat(&self) {
         println!(
             "1: {} 2: {} 4: {} 8: {}",
             self.single.len(),
@@ -162,7 +162,7 @@ impl Blocklist {
         );
     }
 
-    fn num_formfactors(&self) -> usize {
+    pub fn num_formfactors(&self) -> usize {
         return self.single.len()
             + self.vec2.len() * 2
             + self.vec4.len() * 4
@@ -235,9 +235,8 @@ impl Scene {
         for (i, plane) in self.planes.planes_iter().enumerate() {
             let trace_pos = plane.cell + plane.dir.get_normal();
 
-            let mut d = (pos
-                - Point3::new(trace_pos.x as f32, trace_pos.y as f32, trace_pos.z as f32))
-            .normalize();
+            let d = (pos - Point3::new(trace_pos.x as f32, trace_pos.y as f32, trace_pos.z as f32))
+                .normalize();
 
             // normalize: make directional light
             let len = d.magnitude();

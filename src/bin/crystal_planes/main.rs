@@ -27,7 +27,7 @@ use cgmath::prelude::*;
 use cgmath::{Matrix4, Rad, Vector3};
 
 use rand::prelude::*;
-use render_bits::{Normal, Vertex};
+use render_bits::Vertex;
 use std::sync::mpsc::{channel, sync_channel, Receiver, Sender};
 use std::thread::spawn;
 use std::thread::JoinHandle;
@@ -201,16 +201,6 @@ impl RadWorker {
                 if light_update {
                     scene.clear_emit();
                     scene.apply_light(light_pos, Vec3::new(1f32, 0.8f32, 0.6f32));
-
-                    // scene.apply_light(light_pos, Vec3::new(1f32, 0.0f32, 0.0f32));
-                    // scene.apply_light(
-                    //     light_pos + Vec3::new(10f32, 0f32, 10f32),
-                    //     Vec3::new(0f32, 1f32, 0.0f32),
-                    // );
-                    // scene.apply_light(
-                    //     light_pos + Vec3::new(-10f32, 0f32, -10f32),
-                    //     Vec3::new(0f32, 0f32, 1f32),
-                    // );
                     light_update = false;
                 }
                 scene.do_rad();
@@ -223,23 +213,6 @@ impl RadWorker {
                         );
                     }
                 }
-
-                // for (i, plane) in colors_cpu.chunks_mut(4).enumerate() {
-                //     // let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 0.5, 1.0); //random::<f32>(), 1.0, 1.0);
-
-                //     let color = (
-                //         scene.rad_front[i].x,
-                //         scene.rad_front[i].y,
-                //         scene.rad_front[i].z,
-                //     );
-
-                //     plane[0].color = color;
-                //     plane[1].color = color;
-                //     plane[2].color = color;
-                //     plane[3].color = color;
-                // }
-                // println!("size: {}", colors_cpu.len());
-                // let old_cap = colors_buffer_pool.capacity();
                 let chunk = colors_buffer_pool
                     .chunk(colors_cpu.iter().cloned())
                     .unwrap();
@@ -498,40 +471,6 @@ impl RenderDelegate for CrystalRenderDelgate {
             }
         }
 
-        // println!("light pos: {:?}", self.light_pos);
-
-        // if input_state.action1 {
-        //     scene.clear_emit();
-        // } else {
-        //     scene.apply_light(self.light_pos, crystal::Vec3::new(1f32, 1f32, 1f32));
-        // }
-        // scene.do_rad();
-        // for (i, plane) in self.colors_cpu.chunks_mut(4).enumerate() {
-        //     // let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 0.5, 1.0); //random::<f32>(), 1.0, 1.0);
-
-        //     let color = (
-        //         scene.rad_front[i].x,
-        //         scene.rad_front[i].y,
-        //         scene.rad_front[i].z,
-        //     );
-
-        //     plane[0].color = color;
-        //     plane[1].color = color;
-        //     plane[2].color = color;
-        //     plane[3].color = color;
-        // }
-
-        // match self.colors_buffer_pool {
-        //     Some(ref colors_buffer_pool) => {
-        //         let chunk = colors_buffer_pool
-        //             .chunk(self.colors_cpu.iter().map(|x| *x))
-        //             .unwrap();
-        //         self.colors_buffer_gpu = Some(Arc::new(chunk));
-        //     }
-        //     _ => panic!("panic"),
-        // };
-        // }
-
         if let Some(rad_worker) = &self.rad_worker {
             if let Ok(buf) = rad_worker.rx.try_recv() {
                 // println!("receive");
@@ -590,28 +529,21 @@ impl RenderDelegate for CrystalRenderDelgate {
             ) => {
                 let uniform_buffer_subbuffer = {
                     let dimensions = render_test.dimension();
-                    // note: this teapot was meant for OpenGL where the origin is at the lower left
-                    //       instead the origin is at the upper left in Vulkan, so we reverse the Y axis
                     let aspect_ratio = dimensions[0] as f32 / dimensions[1] as f32;
-                    // let proj = cgmath::perspective(
-                    //     Rad(std::f32::consts::FRAC_PI_2),
-                    //     aspect_ratio,
-                    //     0.01,
-                    //     1000.0,
-                    // ) * Matrix4::from_nonuniform_scale(1f32, -1f32, -1f32);
-                    let proj =
-                        perspective(Rad(std::f32::consts::FRAC_PI_2), aspect_ratio, 0.01, 100.0);
-                    // * Matrix4::from_nonuniform_scale(1f32, 1f32, -1f32);
-                    println!("{:?}", self.player_model);
-                    // println!(
-                    //     "mat: {:?}",
-                    //     Matrix4::from_nonuniform_scale(1f32, -1f32, -1f32)
-                    // );
 
                     let uniform_data = vs::ty::Data {
                         world: <Matrix4<f32> as Transform<Point3>>::one().into(), // from(rotation).into(),
                         view: self.player_model.get_view_matrix().into(), //(view * scale).into(),
-                        proj: proj.into(),
+                        proj: render_bits::math::perspective_projection(
+                            Rad(std::f32::consts::FRAC_PI_2),
+                            aspect_ratio,
+                            0.01,
+                            100.0,
+                        )
+                        // proj: render_bits::math::orthograpic_projection(
+                        //     -10f32, 10f32, -10f32, 10f32, 0.01f32, 100.0f32,
+                        // )
+                        .into(),
                     };
 
                     uniform_buffer.next(uniform_data).unwrap()
@@ -669,29 +601,6 @@ impl RenderDelegate for CrystalRenderDelgate {
             }
         }
     }
-}
-
-fn perspective(fov: Rad<f32>, a: f32, zn: f32, zf: f32) -> Matrix4<f32> {
-    #[rustfmt::skip]
-    let clip = Matrix4::new(
-        1.0f32,  0.0f32, 0.0f32, 0.0f32, 
-        0.0f32, -1.0f32, 0.0f32, 0.0f32, 
-        0.0f32,  0.0f32, 0.5f32, 0.0f32, 
-        0.0f32,  0.0f32, 0.5f32, 1.0f32,
-    );
-
-    let f = Rad::cot(fov / 2f32);
-
-    #[rustfmt::skip]
-    let proj = Matrix4::new(
-        f / a,    0f32,    0f32,                          0f32,
-        0f32,     -f,       0f32,                          0f32, 
-        0f32,     0f32,    zf / (zn - zf),         -1f32, 
-        0f32,     0f32,    (zn * zf) / (zn - zf),  0f32,
-    );
-    // let proj = cgmath::perspective(fov, aspect_ratio, near_plane, far_plane);
-    // clip * proj
-    proj
 }
 
 fn main() {
