@@ -76,26 +76,59 @@ impl RenderDelegate for TestDelgate {
                     position: (0f32, 0f32, 0f32),
                 },
                 Vertex {
-                    position: (1f32, 0f32, 0f32),
+                    position: (0f32, 1f32, 0f32),
                 },
                 Vertex {
                     position: (1f32, 1f32, 0f32),
                 },
                 Vertex {
-                    position: (0f32, 1f32, 0f32),
-                },
-                Vertex {
-                    position: (0f32, 1f32, 1f32),
+                    position: (1f32, 0f32, 0f32),
                 },
                 Vertex {
                     position: (0f32, 0f32, 1f32),
                 },
                 Vertex {
-                    position: (1f32, 0f32, 1f32),
+                    position: (0f32, 1f32, 1f32),
                 },
                 Vertex {
-                    position: (1f32, 1f32, 1f32),
+                    position: (0f32, 1f32, 0f32), // 1
                 },
+                Vertex {
+                    position: (1f32, 0f32, 0f32), // 3
+                },
+                Vertex {
+                    position: (1f32, 0f32, 1f32), 
+                },
+                Vertex {
+                    position: (0f32, 0f32, 1f32),
+                },
+
+
+
+                // Vertex {
+                //     position: (0f32, 0f32, 0f32),
+                // },
+                // Vertex {
+                //     position: (1f32, 0f32, 0f32),
+                // },
+                // Vertex {
+                //     position: (1f32, 1f32, 0f32),
+                // },
+                // Vertex {
+                //     position: (0f32, 1f32, 0f32),
+                // },
+                // Vertex {
+                //     position: (0f32, 1f32, 1f32),
+                // },
+                // Vertex {
+                //     position: (0f32, 0f32, 1f32),
+                // },
+                // Vertex {
+                //     position: (1f32, 0f32, 1f32),
+                // },
+                // Vertex {
+                //     position: (1f32, 1f32, 1f32),
+                // },
             ]
             .iter()
             .cloned(),
@@ -107,8 +140,10 @@ impl RenderDelegate for TestDelgate {
 
         let (ib, ib_fut) = vulkano::buffer::ImmutableBuffer::from_iter(
             [
-                0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5, 0, 5, 6, 0, 6, 1, 7, 6, 5, 7, 5, 4, 7, 4, 3, 7,
-                3, 2, 7, 2, 1, 7, 1, 6,
+                0, 1, 2, 0, 2, 3, 0, 4, 5, 0, 5, 6, 0, 7, 8, 0, 8, 9,
+
+                // 0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5, 0, 5, 6, 0, 6, 1, 7, 6, 5, 7, 5, 4, 7, 4, 3, 7,
+                // 3, 2, 7, 2, 1, 7, 1, 6,
             ]
             .iter()
             .cloned(),
@@ -124,26 +159,58 @@ impl RenderDelegate for TestDelgate {
                     color: (0f32, 0f32, 0f32),
                 },
                 Color {
-                    color: (1f32, 0f32, 0f32),
+                    color: (0f32, 1f32, 0f32),
                 },
                 Color {
                     color: (1f32, 1f32, 0f32),
                 },
                 Color {
-                    color: (0f32, 1f32, 0f32),
-                },
-                Color {
-                    color: (0f32, 1f32, 1f32),
+                    color: (1f32, 0f32, 0f32),
                 },
                 Color {
                     color: (0f32, 0f32, 1f32),
                 },
                 Color {
-                    color: (1f32, 0f32, 1f32),
+                    color: (0f32, 1f32, 1f32),
                 },
                 Color {
-                    color: (1f32, 1f32, 1f32),
+                    color: (0f32, 1f32, 0f32), // 1
                 },
+                Color {
+                    color: (1f32, 0f32, 0f32), // 3
+                },
+                Color {
+                    color: (1f32, 0f32, 1f32), 
+                },
+                Color {
+                    color: (0f32, 0f32, 1f32),
+                },
+
+
+                // Color {
+                //     color: (0f32, 0f32, 0f32),
+                // },
+                // Color {
+                //     color: (1f32, 0f32, 0f32),
+                // },
+                // Color {
+                //     color: (1f32, 1f32, 0f32),
+                // },
+                // Color {
+                //     color: (0f32, 1f32, 0f32),
+                // },
+                // Color {
+                //     color: (0f32, 1f32, 1f32),
+                // },
+                // Color {
+                //     color: (0f32, 0f32, 1f32),
+                // },
+                // Color {
+                //     color: (1f32, 0f32, 1f32),
+                // },
+                // Color {
+                //     color: (1f32, 1f32, 1f32),
+                // },
             ]
             .iter()
             .cloned(),
