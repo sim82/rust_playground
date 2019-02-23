@@ -111,9 +111,9 @@ impl RadWorker {
                                     continue;
                                 }
                                 scene.diffuse[i] = match plane.dir {
-                                    crystal::Dir::YzPos => color1,
-                                    crystal::Dir::YzNeg => color2,
-                                    crystal::Dir::XyPos | crystal::Dir::XyNeg => {
+                                    crystal::Dir::XyPos => color1,
+                                    crystal::Dir::XyNeg => color2,
+                                    crystal::Dir::YzPos | crystal::Dir::YzNeg => {
                                         Vector3::new(0.8f32, 0.8f32, 0.8f32)
                                     }
                                     _ => Vector3::new(1f32, 1f32, 1f32),
@@ -167,8 +167,8 @@ impl RadWorker {
                                     Vector3::zero()
                                 } else {
                                     match plane.dir {
-                                        crystal::Dir::YzPos => color1,
-                                        crystal::Dir::YzNeg => color2,
+                                        crystal::Dir::XyPos => color1,
+                                        crystal::Dir::XyNeg => color2,
                                         // crystal::Dir::XyPos | crystal::Dir::XyNeg => {
                                         //     Vector3::new(0.8f32, 0.8f32, 0.8f32)
                                         // }
