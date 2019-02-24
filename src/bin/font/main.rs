@@ -194,7 +194,7 @@ impl RenderDelegate for TestDelgate {
                 width: size.0,
                 height: size.1,
             },
-            vulkano::format::Format::R8Uint,
+            vulkano::format::Format::R8Srgb,
             render_test.queue.clone(),
         )
         .unwrap();
@@ -332,7 +332,7 @@ impl RenderDelegate for TestDelgate {
         // https://computergraphics.stackexchange.com/questions/5742/vulkan-best-way-of-updating-pipeline-viewport
         Arc::new(
             GraphicsPipeline::start()
-                .vertex_input(TwoBuffersDefinition::<Vertex, Color>::new())
+                .vertex_input(TwoBuffersDefinition::<Vertex, TexCoord>::new())
                 .vertex_shader(vs.main_entry_point(), ())
                 .triangle_list()
                 .front_face_clockwise()
@@ -343,6 +343,7 @@ impl RenderDelegate for TestDelgate {
                     dimensions: [dimensions[0] as f32, dimensions[1] as f32],
                     depth_range: 0.0..1.0,
                 }))
+                .blend_alpha_blending()
                 .fragment_shader(fs.main_entry_point(), ())
                 .depth_stencil_simple_depth()
                 .render_pass(Subpass::from(render_test.render_pass.clone(), 0).unwrap())
@@ -410,7 +411,7 @@ impl RenderDelegate for TestDelgate {
             .draw_indexed(
                 pipeline.clone(),
                 &DynamicState::none(),
-                vec![data.vertex_buffer.clone(), data.colors_buffer_gpu.clone()],
+                vec![data.vertex_buffer.clone(), data.tex_buffer.clone()],
                 data.index_buffer.clone(),
                 set.clone(),
                 (),
