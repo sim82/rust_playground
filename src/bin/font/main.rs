@@ -8,16 +8,18 @@ use vulkano::buffer::{BufferUsage, CpuBufferPool, ImmutableBuffer};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::framebuffer::{FramebufferAbstract, Subpass};
-use vulkano::image::StorageImage;
+use vulkano::image::ImmutableImage;
 use vulkano::pipeline::vertex::TwoBuffersDefinition;
 use vulkano::pipeline::viewport::Viewport;
 use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
+use vulkano::sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode};
 use vulkano::sync::GpuFuture;
 
 use cgmath::prelude::*;
 use cgmath::{Matrix4, Rad, Vector3};
 
-use render_bits::Vertex;
+use image::ImageBuffer;
+use render_bits::{TexCoord, Vertex};
 use std::iter;
 use std::sync::Arc;
 use std::time::Instant;
@@ -31,23 +33,49 @@ pub struct Color {
 
 vulkano::impl_vertex!(Color, color);
 
+struct TestData {
+    vertex_buffer: Arc<ImmutableBuffer<[Vertex]>>,
+    tex_buffer: Arc<ImmutableBuffer<[TexCoord]>>,
+
+    colors_buffer_gpu: Arc<ImmutableBuffer<[Color]>>,
+    index_buffer: Arc<ImmutableBuffer<[u32]>>,
+    uniform_buffer: CpuBufferPool<vs::ty::Data>,
+    glyph_image: Arc<ImmutableImage<vulkano::format::Format>>,
+    sampler: Arc<Sampler>,
+}
+
 struct TestDelgate {
-    vertex_buffer: Option<Arc<ImmutableBuffer<[Vertex]>>>,
-    colors_buffer_gpu: Option<Arc<ImmutableBuffer<[Color]>>>,
-    index_buffer: Option<Arc<ImmutableBuffer<[u32]>>>,
-    uniform_buffer: Option<CpuBufferPool<vs::ty::Data>>,
-    glyph_image: Option<Arc<StorageImage<vulkano::format::R8Uint>>>,
+    data: Option<TestData>,
     last_time: std::time::Instant,
 }
 impl TestDelgate {
     fn new() -> TestDelgate {
         TestDelgate {
-            vertex_buffer: None,
-            colors_buffer_gpu: None,
-            index_buffer: None,
-            uniform_buffer: None,
-            glyph_image: None,
+            data: None,
             last_time: Instant::now(),
+        }
+    }
+}
+
+trait Canvas {
+    fn blit(&mut self, rect: glyph_brush::rusttype::Rect<u32>, data: &[u8]);
+}
+
+impl Canvas for (&mut [u8], (u32, u32)) {
+    fn blit(&mut self, rect: glyph_brush::rusttype::Rect<u32>, data: &[u8]) {
+        let (mydata, (w, h)) = self;
+
+        if rect.max.x > *w || rect.max.y > *h {
+            return;
+        }
+        for y in 0..rect.height() {
+            let ydest = y + rect.min.y;
+            let dest = (ydest * *w + rect.min.x) as usize;
+            let destx = dest + rect.width() as usize;
+            let src = (y * rect.width()) as usize;
+            let srcx = src + rect.width() as usize;
+
+            mydata[dest..destx].copy_from_slice(&data[src..srcx]);
         }
     }
 }
@@ -56,11 +84,13 @@ impl RenderDelegate for TestDelgate {
     fn init(&mut self, render_test: &RenderTest) -> Box<vulkano::sync::GpuFuture> {
         //self.vertex_buffer = vulkano::buffer::CpuAccessibleBuffer::from_data(device: Arc<Device>, usage: BufferUsage, data: T)
 
-        let dejavu: &[u8] = include_bytes!("DejaVuSans.ttf");
+        let dejavu: &[u8] = include_bytes!("DejaVuSansMono.ttf");
         let mut glyph_brush = GlyphBrushBuilder::using_font_bytes(dejavu).build::<u32>();
 
+        let text = String::from_utf8(include_bytes!("test.txt")[..].into()).unwrap();
         glyph_brush.queue(Section {
-            text: "MMMHello glyph_brush",
+            //text: "MMMHello qwertyuiopasdfghjklzxcvbnmQWERTYUIOASDFGHJKLZXCVBNM",
+            text: &text,
             scale: glyph_brush::rusttype::Scale::uniform(64f32),
             ..Section::default()
         });
@@ -68,84 +98,120 @@ impl RenderDelegate for TestDelgate {
         let dimensions = render_test.dimension();
         // let mut x = 0;
 
-        self.glyph_image = Some(
-            StorageImage::new(
-                render_test.device.clone(),
-                vulkano::image::Dimensions::Dim2d {
-                    width: 256,
-                    height: 256,
-                },
-                vulkano::format::R8Uint,
-                render_test.device.active_queue_families(),
-            )
-            .unwrap(),
-        );
-
+        let mut size = (256u32, 256u32);
+        let mut glyph_data = vec![0u8; (size.0 * size.1) as usize];
         let verts = std::cell::RefCell::new(Vec::new());
+        let tex = std::cell::RefCell::new(Vec::new());
         let mut indices = Vec::new();
-        match glyph_brush.process_queued(
-            (dimensions[0], dimensions[1]),
-            |rect, tex_data| {
-                if let Some(image) = &self.glyph_image {
-                    // image.
-                    println!(
-                        "blit: {:?}",
-                        (image as &vulkano::image::ImageAccess).supports_blit_destination()
+        loop {
+            match glyph_brush.process_queued(
+                (dimensions[0], dimensions[1]),
+                |rect, tex_data| {
+                    (&mut glyph_data[..], (size.0, size.1)).blit(rect, tex_data);
+                },
+                |vertex_data| {
+                    let minx = vertex_data.pixel_coords.min.x as f32;
+                    let miny = vertex_data.pixel_coords.min.y as f32;
+                    let maxx = vertex_data.pixel_coords.max.x as f32;
+                    let maxy = vertex_data.pixel_coords.max.y as f32;
+
+                    // println!("to_vertex: {:?}", vertex_data);
+                    // x += 1;
+                    let mut verts = verts.borrow_mut();
+                    let first = verts.len();
+                    verts.push(Vertex {
+                        position: (minx, miny, 0f32),
+                    });
+                    verts.push(Vertex {
+                        position: (maxx, miny, 0f32),
+                    });
+                    verts.push(Vertex {
+                        position: (maxx, maxy, 0f32),
+                    });
+                    verts.push(Vertex {
+                        position: (minx, maxy, 0f32),
+                    });
+
+                    let minx = vertex_data.tex_coords.min.x as f32;
+                    let miny = vertex_data.tex_coords.min.y as f32;
+                    let maxx = vertex_data.tex_coords.max.x as f32;
+                    let maxy = vertex_data.tex_coords.max.y as f32;
+
+                    let mut tex = tex.borrow_mut();
+                    tex.push(TexCoord { tex: (minx, miny) });
+                    tex.push(TexCoord { tex: (maxx, miny) });
+                    tex.push(TexCoord { tex: (maxx, maxy) });
+                    tex.push(TexCoord { tex: (minx, maxy) });
+
+                    first as u32
+                },
+            ) {
+                Ok(BrushAction::Draw(vertices)) => {
+                    // Draw new vertices.
+                    //println!("draw {:?}", vertices);
+
+                    indices.append(
+                        &mut vertices
+                            .iter()
+                            .flat_map(|v| vec![*v, *v + 1, *v + 2, *v, *v + 2, *v + 3])
+                            .collect(),
                     );
+                    break;
                 }
-            },
-            |vertex_data| {
-                let minx = vertex_data.pixel_coords.min.x as f32;
-                let miny = vertex_data.pixel_coords.min.y as f32;
-                let maxx = vertex_data.pixel_coords.max.x as f32;
-                let maxy = vertex_data.pixel_coords.max.y as f32;
-
-                println!("to_vertex: {:?}", vertex_data);
-                // x += 1;
-                let mut verts = verts.borrow_mut();
-                let first = verts.len();
-                verts.push(Vertex {
-                    position: (minx, miny, 0f32),
-                });
-                verts.push(Vertex {
-                    position: (maxx, miny, 0f32),
-                });
-                verts.push(Vertex {
-                    position: (maxx, maxy, 0f32),
-                });
-                verts.push(Vertex {
-                    position: (minx, maxy, 0f32),
-                });
-
-                first as u32
-            },
-        ) {
-            Ok(BrushAction::Draw(vertices)) => {
-                // Draw new vertices.
-                //println!("draw {:?}", vertices);
-
-                indices.append(
-                    &mut vertices
-                        .iter()
-                        .flat_map(|v| vec![*v, *v + 1, *v + 2, *v, *v + 2, *v + 3])
-                        .collect(),
-                )
-            }
-            Ok(BrushAction::ReDraw) => {
-                // Re-draw last frame's vertices unmodified.
-                println!("redraw");
-            }
-            Err(BrushError::TextureTooSmall { suggested }) => {
-                println!("too small {:?}", suggested);
-                // Enlarge texture + glyph_brush texture cache and retry.
+                Ok(BrushAction::ReDraw) => {
+                    // Re-draw last frame's vertices unmodified.
+                    println!("redraw");
+                    break;
+                }
+                Err(BrushError::TextureTooSmall { suggested }) => {
+                    println!("too small {:?}", suggested);
+                    // Enlarge texture + glyph_brush texture cache and retry.
+                    size = suggested;
+                    glyph_data = vec![0u8; (size.0 * size.1) as usize];
+                    glyph_brush.resize_texture(size.0, size.1);
+                }
             }
         }
+        let image =
+            ImageBuffer::<image::Luma<u8>, _>::from_raw(size.0, size.1, &glyph_data[..]).unwrap();
+        image.save("font.png").unwrap();
+
+        // self.glyph_image = Some(
+        //     StorageImage::new(
+        //         render_test.device.clone(),
+        //         vulkano::image::Dimensions::Dim2d {
+        //             width: 256,
+        //             height: 256,
+        //         },
+        //         vulkano::format::R8Uint,
+        //         render_test.device.active_queue_families(),
+        //     )
+        //     .unwrap(),
+        // );
+        let (gi, gi_fut) = ImmutableImage::from_iter(
+            glyph_data.iter().cloned(),
+            vulkano::image::Dimensions::Dim2d {
+                width: size.0,
+                height: size.1,
+            },
+            vulkano::format::Format::R8Uint,
+            render_test.queue.clone(),
+        )
+        .unwrap();
+
         let (vb, vb_fut) = vulkano::buffer::ImmutableBuffer::from_iter(
             verts.borrow().iter().cloned(),
             vulkano::buffer::BufferUsage::vertex_buffer(),
             render_test.queue.clone(),
         )
         .unwrap();
+        let (tb, tb_fut) = vulkano::buffer::ImmutableBuffer::from_iter(
+            tex.borrow().iter().cloned(),
+            vulkano::buffer::BufferUsage::vertex_buffer(),
+            render_test.queue.clone(),
+        )
+        .unwrap();
+
         println!("indices {:?}", indices);
         // let (vb, vb_fut) = vulkano::buffer::ImmutableBuffer::from_iter(
         //     [
@@ -180,7 +246,6 @@ impl RenderDelegate for TestDelgate {
         //     render_test.queue.clone(),
         // )
         // .unwrap();
-        self.vertex_buffer = Some(vb);
 
         // hollow half cube
         let (ib, ib_fut) = vulkano::buffer::ImmutableBuffer::from_iter(
@@ -189,7 +254,6 @@ impl RenderDelegate for TestDelgate {
             render_test.queue.clone(),
         )
         .unwrap();
-        self.index_buffer = Some(ib);
 
         let (cb, cb_fut) = vulkano::buffer::ImmutableBuffer::from_iter(
             [
@@ -224,14 +288,34 @@ impl RenderDelegate for TestDelgate {
             render_test.queue.clone(),
         )
         .unwrap();
-        self.colors_buffer_gpu = Some(cb);
 
-        self.uniform_buffer = Some(CpuBufferPool::<vs::ty::Data>::new(
-            render_test.device.clone(),
-            BufferUsage::all(),
-        ));
+        self.data = Some(TestData {
+            vertex_buffer: vb,
+            tex_buffer: tb,
+            colors_buffer_gpu: cb,
+            index_buffer: ib,
+            uniform_buffer: CpuBufferPool::<vs::ty::Data>::new(
+                render_test.device.clone(),
+                BufferUsage::all(),
+            ),
+            glyph_image: gi,
+            sampler: Sampler::new(
+                render_test.device.clone(),
+                Filter::Linear,
+                Filter::Linear,
+                MipmapMode::Nearest,
+                SamplerAddressMode::Repeat,
+                SamplerAddressMode::Repeat,
+                SamplerAddressMode::Repeat,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+            )
+            .unwrap(),
+        });
 
-        Box::new(vb_fut.join(ib_fut.join(cb_fut)))
+        Box::new(vb_fut.join(ib_fut.join(cb_fut.join(gi_fut.join(tb_fut)))))
     }
     fn shutdown(self) {}
 
@@ -288,83 +372,68 @@ impl RenderDelegate for TestDelgate {
             >,
         >,
     > {
-        match (
-            &self.vertex_buffer,
-            // &self.colors_buffer,
-            &self.colors_buffer_gpu,
-            &self.index_buffer,
-            &self.uniform_buffer,
-        ) {
-            (
-                Some(vertex_buffer),
-                // Some(colors_buffer),
-                Some(colors_buffer_gpu),
-                Some(index_buffer),
-                Some(uniform_buffer),
-            ) => {
-                let uniform_buffer_subbuffer = {
-                    let dimensions = render_test.dimension();
-                    let unity = Matrix4::from_scale(1f32);
-                    let uniform_data = vs::ty::Data {
-                        view: unity.into(),
-                        world: unity.into(),
-                        proj: render_bits::math::canvas_projection(dimensions[0], dimensions[1])
-                            .into(),
-                    };
-
-                    uniform_buffer.next(uniform_data).unwrap()
+        if let Some(data) = &self.data {
+            let uniform_buffer_subbuffer = {
+                let dimensions = render_test.dimension();
+                let unity = Matrix4::from_scale(1f32);
+                let uniform_data = vs::ty::Data {
+                    view: unity.into(),
+                    world: unity.into(),
+                    proj: render_bits::math::canvas_projection(dimensions[0], dimensions[1]).into(),
                 };
 
-                let set = Arc::new(
-                    PersistentDescriptorSet::start(pipeline.clone(), 0)
-                        .add_buffer(uniform_buffer_subbuffer)
-                        .unwrap()
-                        .build()
-                        .unwrap(),
-                );
+                data.uniform_buffer.next(uniform_data).unwrap()
+            };
 
-                let command_buffer = AutoCommandBufferBuilder::primary_one_time_submit(
+            let set = Arc::new(
+                PersistentDescriptorSet::start(pipeline.clone(), 0)
+                    .add_buffer(uniform_buffer_subbuffer)
+                    .unwrap()
+                    .add_sampled_image(data.glyph_image.clone(), data.sampler.clone())
+                    .unwrap()
+                    .build()
+                    .unwrap(),
+            );
+
+            let command_buffer = AutoCommandBufferBuilder::primary_one_time_submit(
+                render_test.device.clone(),
+                render_test.queue.family(),
+            )
+            .unwrap()
+            // .update_buffer(colors_buffer_gpu.clone(), self.colors_cpu[..]).unwrap()
+            .begin_render_pass(
+                framebuffer.clone(),
+                false,
+                vec![[0.0, 0.0, 1.0, 1.0].into(), 1f32.into()],
+            )
+            .unwrap()
+            .draw_indexed(
+                pipeline.clone(),
+                &DynamicState::none(),
+                vec![data.vertex_buffer.clone(), data.colors_buffer_gpu.clone()],
+                data.index_buffer.clone(),
+                set.clone(),
+                (),
+            )
+            .unwrap()
+            .end_render_pass()
+            .unwrap()
+            .build()
+            .unwrap();
+            Some(Box::new(command_buffer))
+        } else {
+            println!("not initialized");
+            //None
+
+            Some(Box::new(
+                AutoCommandBufferBuilder::primary_one_time_submit(
                     render_test.device.clone(),
                     render_test.queue.family(),
                 )
                 .unwrap()
-                // .update_buffer(colors_buffer_gpu.clone(), self.colors_cpu[..]).unwrap()
-                .begin_render_pass(
-                    framebuffer.clone(),
-                    false,
-                    vec![[0.0, 0.0, 1.0, 1.0].into(), 1f32.into()],
-                )
-                .unwrap()
-                .draw_indexed(
-                    pipeline.clone(),
-                    &DynamicState::none(),
-                    vec![vertex_buffer.clone(), colors_buffer_gpu.clone()],
-                    index_buffer.clone(),
-                    set.clone(),
-                    (),
-                )
-                .unwrap()
-                .end_render_pass()
-                .unwrap()
                 .build()
-                .unwrap();
-                Some(Box::new(command_buffer))
-            }
-
-            _ => {
-                println!("not initialized");
-                //None
-
-                Some(Box::new(
-                    AutoCommandBufferBuilder::primary_one_time_submit(
-                        render_test.device.clone(),
-                        render_test.queue.family(),
-                    )
-                    .unwrap()
-                    .build()
-                    .unwrap(),
-                ))
-            }
+                .unwrap(),
+            ))
         }
     }
 }

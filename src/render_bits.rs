@@ -49,6 +49,13 @@ pub struct Vertex {
 vulkano::impl_vertex!(Vertex, position);
 
 #[derive(Copy, Clone)]
+pub struct TexCoord {
+    pub tex: (f32, f32),
+}
+
+vulkano::impl_vertex!(TexCoord, tex);
+
+#[derive(Copy, Clone)]
 pub struct Normal {
     pub normal: (f32, f32, f32),
 }
