@@ -85,7 +85,7 @@ impl RenderDelegate for TestDelgate {
         //self.vertex_buffer = vulkano::buffer::CpuAccessibleBuffer::from_data(device: Arc<Device>, usage: BufferUsage, data: T)
 
         let dejavu: &[u8] = include_bytes!("DejaVuSansMono.ttf");
-        let mut glyph_brush = GlyphBrushBuilder::using_font_bytes(dejavu).build::<u32>();
+        let mut glyph_brush = GlyphBrushBuilder::using_font_bytes(dejavu).build();
 
         let text = String::from_utf8(include_bytes!("test.txt")[..].into()).unwrap();
         glyph_brush.queue(Section {
@@ -100,8 +100,8 @@ impl RenderDelegate for TestDelgate {
 
         let mut size = (256u32, 256u32);
         let mut glyph_data = vec![0u8; (size.0 * size.1) as usize];
-        let verts = std::cell::RefCell::new(Vec::new());
-        let tex = std::cell::RefCell::new(Vec::new());
+        let mut verts = Vec::new();
+        let mut tex = Vec::new();
         let mut indices = Vec::new();
         loop {
             match glyph_brush.process_queued(
@@ -110,52 +110,45 @@ impl RenderDelegate for TestDelgate {
                     (&mut glyph_data[..], (size.0, size.1)).blit(rect, tex_data);
                 },
                 |vertex_data| {
-                    let minx = vertex_data.pixel_coords.min.x as f32;
-                    let miny = vertex_data.pixel_coords.min.y as f32;
-                    let maxx = vertex_data.pixel_coords.max.x as f32;
-                    let maxy = vertex_data.pixel_coords.max.y as f32;
-
-                    // println!("to_vertex: {:?}", vertex_data);
-                    // x += 1;
-                    let mut verts = verts.borrow_mut();
-                    let first = verts.len();
-                    verts.push(Vertex {
-                        position: (minx, miny, 0f32),
-                    });
-                    verts.push(Vertex {
-                        position: (maxx, miny, 0f32),
-                    });
-                    verts.push(Vertex {
-                        position: (maxx, maxy, 0f32),
-                    });
-                    verts.push(Vertex {
-                        position: (minx, maxy, 0f32),
-                    });
-
-                    let minx = vertex_data.tex_coords.min.x as f32;
-                    let miny = vertex_data.tex_coords.min.y as f32;
-                    let maxx = vertex_data.tex_coords.max.x as f32;
-                    let maxy = vertex_data.tex_coords.max.y as f32;
-
-                    let mut tex = tex.borrow_mut();
-                    tex.push(TexCoord { tex: (minx, miny) });
-                    tex.push(TexCoord { tex: (maxx, miny) });
-                    tex.push(TexCoord { tex: (maxx, maxy) });
-                    tex.push(TexCoord { tex: (minx, maxy) });
-
-                    first as u32
+                    (
+                        vertex_data.pixel_coords.min,
+                        vertex_data.pixel_coords.max,
+                        vertex_data.tex_coords.min,
+                        vertex_data.tex_coords.max,
+                    )
                 },
             ) {
                 Ok(BrushAction::Draw(vertices)) => {
-                    // Draw new vertices.
-                    //println!("draw {:?}", vertices);
+                    for (vmin, vmax, tmin, tmax) in vertices {
+                        let v = verts.len() as u32;
+                        indices.append(&mut vec![v, v + 1, v + 2, v, v + 2, v + 3]);
 
-                    indices.append(
-                        &mut vertices
-                            .iter()
-                            .flat_map(|v| vec![*v, *v + 1, *v + 2, *v, *v + 2, *v + 3])
-                            .collect(),
-                    );
+                        verts.push(Vertex {
+                            position: (vmin.x as f32, vmin.y as f32, 0f32),
+                        });
+                        verts.push(Vertex {
+                            position: (vmax.x as f32, vmin.y as f32, 0f32),
+                        });
+                        verts.push(Vertex {
+                            position: (vmax.x as f32, vmax.y as f32, 0f32),
+                        });
+                        verts.push(Vertex {
+                            position: (vmin.x as f32, vmax.y as f32, 0f32),
+                        });
+                        tex.push(TexCoord {
+                            tex: (tmin.x as f32, tmin.y as f32),
+                        });
+                        tex.push(TexCoord {
+                            tex: (tmax.x as f32, tmin.y as f32),
+                        });
+                        tex.push(TexCoord {
+                            tex: (tmax.x as f32, tmax.y as f32),
+                        });
+                        tex.push(TexCoord {
+                            tex: (tmin.x as f32, tmax.y as f32),
+                        });
+                    }
+
                     break;
                 }
                 Ok(BrushAction::ReDraw) => {
@@ -200,13 +193,13 @@ impl RenderDelegate for TestDelgate {
         .unwrap();
 
         let (vb, vb_fut) = vulkano::buffer::ImmutableBuffer::from_iter(
-            verts.borrow().iter().cloned(),
+            verts.iter().cloned(),
             vulkano::buffer::BufferUsage::vertex_buffer(),
             render_test.queue.clone(),
         )
         .unwrap();
         let (tb, tb_fut) = vulkano::buffer::ImmutableBuffer::from_iter(
-            tex.borrow().iter().cloned(),
+            tex.iter().cloned(),
             vulkano::buffer::BufferUsage::vertex_buffer(),
             render_test.queue.clone(),
         )
