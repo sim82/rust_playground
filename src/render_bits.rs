@@ -178,7 +178,7 @@ impl std::fmt::Debug for PlayerFlyModel {
 pub struct RenderTest {
     // instance: Arc<Instance>,
     events_loop: winit::EventsLoop,
-    surface: Arc<vulkano::swapchain::Surface<Window>>,
+    pub surface: Arc<vulkano::swapchain::Surface<Window>>,
     pub device: Arc<Device>,
     pub queue: Arc<vulkano::device::Queue>,
 
