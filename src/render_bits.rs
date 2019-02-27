@@ -40,6 +40,7 @@ use cgmath::{Deg, Matrix4, Point3, Vector4};
 use std::sync::Arc;
 
 pub mod math;
+pub mod text_console;
 
 #[derive(Copy, Clone)]
 pub struct Vertex {
