@@ -1,6 +1,6 @@
 use crate::render_bits;
 use crate::render_bits::{RenderTest, TexCoord, Vertex};
-use vulkano::buffer::{cpu_pool::CpuBufferPoolChunk, BufferUsage, CpuBufferPool, ImmutableBuffer};
+use vulkano::buffer::{cpu_pool::CpuBufferPoolChunk, BufferUsage, CpuBufferPool};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::framebuffer::{FramebufferAbstract, Subpass};
@@ -9,15 +9,11 @@ use vulkano::pipeline::vertex::TwoBuffersDefinition;
 use vulkano::pipeline::viewport::Viewport;
 use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
 use vulkano::sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode};
-use vulkano::sync::GpuFuture;
 
-use cgmath::prelude::*;
-use cgmath::{Matrix4, Rad, Vector3};
+use cgmath::Matrix4;
 
-use image::ImageBuffer;
 use std::iter;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use glyph_brush::{rusttype, BrushAction, BrushError, GlyphBrush, GlyphBrushBuilder, Section};
 
@@ -73,7 +69,7 @@ pub struct TextConsole {
     glyph_data: Vec<u8>,
     brush: GlyphBrush<'static, GlyphVertexData>,
     sampler: Arc<vulkano::sampler::Sampler>,
-
+    pipeline: Option<Arc<GraphicsPipelineAbstract + Send + Sync>>,
     text_lines: Vec<String>,
 }
 
@@ -108,7 +104,38 @@ impl TextConsole {
                 0.0,
             )
             .unwrap(),
+            pipeline: None,
         }
+    }
+
+    pub fn framebuffer_changed(&mut self, render_test: &RenderTest) {
+        let vs = vs::Shader::load(render_test.device.clone()).unwrap();
+        let fs = fs::Shader::load(render_test.device.clone()).unwrap();
+        let dimensions = render_test.dimension();
+        // In the triangle example we use a dynamic viewport, as its a simple example.
+        // However in the teapot example, we recreate the pipelines with a hardcoded viewport instead.
+        // This allows the driver to optimize things, at the cost of slower window resizes.
+        // https://computergraphics.stackexchange.com/questions/5742/vulkan-best-way-of-updating-pipeline-viewport
+        self.pipeline = Some(Arc::new(
+            GraphicsPipeline::start()
+                .vertex_input(TwoBuffersDefinition::<Vertex, TexCoord>::new())
+                .vertex_shader(vs.main_entry_point(), ())
+                .triangle_list()
+                .front_face_clockwise()
+                .cull_mode_back()
+                .viewports_dynamic_scissors_irrelevant(1)
+                .viewports(iter::once(Viewport {
+                    origin: [0.0, 0.0],
+                    dimensions: [dimensions[0] as f32, dimensions[1] as f32],
+                    depth_range: 0.0..1.0,
+                }))
+                .blend_alpha_blending()
+                .fragment_shader(fs.main_entry_point(), ())
+                .depth_stencil_simple_depth()
+                .render_pass(Subpass::from(render_test.render_pass.clone(), 0).unwrap())
+                .build(render_test.device.clone())
+                .unwrap(),
+        ))
     }
 
     pub fn add_line(&mut self, line: &str) {
@@ -246,57 +273,59 @@ impl TextConsole {
         &mut self,
         builder: AutoCommandBufferBuilder<PoolBuilder>,
         framebuffer: Arc<FramebufferAbstract + Send + Sync>,
-        pipeline: Arc<GraphicsPipelineAbstract + Send + Sync>,
     ) -> AutoCommandBufferBuilder<PoolBuilder> {
-        if let Some(buffers) = &self.buffers {
-            let uniform_buffer_subbuffer = {
-                let width = framebuffer.width();
-                let height = framebuffer.height();
+        if self.buffers.is_none() || self.pipeline.is_none() {
+            return builder;
+        }
 
-                let unity = Matrix4::from_scale(1f32);
-                let uniform_data = vs::ty::Data {
-                    view: unity.into(),
-                    world: unity.into(),
-                    proj: render_bits::math::canvas_projection(width, height).into(),
-                };
+        let buffers = self.buffers.as_mut().unwrap();
+        let pipeline = self.pipeline.as_ref().unwrap();
 
-                self.ub_pool.next(uniform_data).unwrap()
+        let uniform_buffer_subbuffer = {
+            let width = framebuffer.width();
+            let height = framebuffer.height();
+
+            let unity = Matrix4::from_scale(1f32);
+            let uniform_data = vs::ty::Data {
+                view: unity.into(),
+                world: unity.into(),
+                proj: render_bits::math::canvas_projection(width, height).into(),
             };
 
-            let set = Arc::new(
-                PersistentDescriptorSet::start(pipeline.clone(), 0)
-                    .add_buffer(uniform_buffer_subbuffer)
-                    .unwrap()
-                    .add_sampled_image(
-                        self.glyph_image.as_mut().unwrap().clone(),
-                        self.sampler.clone(),
-                    )
-                    .unwrap()
-                    .build()
-                    .unwrap(),
-            );
+            self.ub_pool.next(uniform_data).unwrap()
+        };
 
-            builder
-                .begin_render_pass(
-                    framebuffer.clone(),
-                    false,
-                    vec![[0.0, 0.0, 1.0, 1.0].into(), 1f32.into()],
+        let set = Arc::new(
+            PersistentDescriptorSet::start(pipeline.clone(), 0)
+                .add_buffer(uniform_buffer_subbuffer)
+                .unwrap()
+                .add_sampled_image(
+                    self.glyph_image.as_mut().unwrap().clone(),
+                    self.sampler.clone(),
                 )
                 .unwrap()
-                .draw_indexed(
-                    pipeline.clone(),
-                    &DynamicState::none(),
-                    vec![buffers.vb.clone(), buffers.tb.clone()],
-                    buffers.ib.clone(),
-                    set.clone(),
-                    (),
-                )
-                .unwrap()
-                .end_render_pass()
-                .unwrap()
-        } else {
-            builder
-        }
+                .build()
+                .unwrap(),
+        );
+
+        builder
+            // .begin_render_pass(
+            //     framebuffer.clone(),
+            //     false,
+            //     vec![[0.0, 0.0, 1.0, 1.0].into(), 1f32.into()],
+            // )
+            // .unwrap()
+            .draw_indexed(
+                pipeline.clone(),
+                &DynamicState::none(),
+                vec![buffers.vb.clone(), buffers.tb.clone()],
+                buffers.ib.clone(),
+                set.clone(),
+                (),
+            )
+            .unwrap()
+        // .end_render_pass()
+        // .unwrap()
     }
 }
 

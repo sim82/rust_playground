@@ -262,6 +262,7 @@ struct CrystalRenderDelgate {
     tx_pos: Option<Sender<GameEvent>>,
 
     text_console: Option<TextConsole>,
+    pipeline: Option<Arc<GraphicsPipelineAbstract + Send + Sync>>,
 }
 
 impl CrystalRenderDelgate {
@@ -287,6 +288,7 @@ impl CrystalRenderDelgate {
             tx_pos: None,
 
             text_console: None,
+            pipeline: None,
         }
     }
 }
@@ -398,11 +400,7 @@ impl RenderDelegate for CrystalRenderDelgate {
             println!(" done");
         }
     }
-
-    fn create_pipeline(
-        &self,
-        render_test: &RenderTest,
-    ) -> Arc<GraphicsPipelineAbstract + Send + Sync> {
+    fn framebuffer_changed(&mut self, render_test: &RenderTest) {
         let vs = vs::Shader::load(render_test.device.clone()).unwrap();
         let fs = fs::Shader::load(render_test.device.clone()).unwrap();
         let dimensions = render_test.dimension();
@@ -410,12 +408,12 @@ impl RenderDelegate for CrystalRenderDelgate {
         // However in the teapot example, we recreate the pipelines with a hardcoded viewport instead.
         // This allows the driver to optimize things, at the cost of slower window resizes.
         // https://computergraphics.stackexchange.com/questions/5742/vulkan-best-way-of-updating-pipeline-viewport
-        Arc::new(
+        self.pipeline = Some(Arc::new(
             GraphicsPipeline::start()
                 .vertex_input(TwoBuffersDefinition::<Vertex, Color>::new())
                 .vertex_shader(vs.main_entry_point(), ())
                 .triangle_list()
-                .front_face_clockwise() // face winding swapped by y-invert
+                .front_face_clockwise()
                 .cull_mode_back()
                 .viewports_dynamic_scissors_irrelevant(1)
                 .viewports(iter::once(Viewport {
@@ -423,15 +421,17 @@ impl RenderDelegate for CrystalRenderDelgate {
                     dimensions: [dimensions[0] as f32, dimensions[1] as f32],
                     depth_range: 0.0..1.0,
                 }))
+                .blend_alpha_blending()
                 .fragment_shader(fs.main_entry_point(), ())
-                // .depth_stencil_simple_depth()
                 .depth_stencil_simple_depth()
                 .render_pass(Subpass::from(render_test.render_pass.clone(), 0).unwrap())
                 .build(render_test.device.clone())
                 .unwrap(),
-        )
+        ));
+        if let Some(text_console) = &mut self.text_console {
+            text_console.framebuffer_changed(render_test);
+        }
     }
-
     fn update(&mut self, render_test: &RenderTest, input_state: &InputState) -> Box<GpuFuture> {
         // let now = Instant::now();
         // let d_time = now - self.last_time;
@@ -517,7 +517,6 @@ impl RenderDelegate for CrystalRenderDelgate {
         render_test: &RenderTest,
         // input_state: &InputState,
         framebuffer: Arc<FramebufferAbstract + Send + Sync>,
-        pipeline: Arc<GraphicsPipelineAbstract + Send + Sync>,
     ) -> Option<
         Box<
             vulkano::command_buffer::CommandBuffer<
@@ -531,6 +530,7 @@ impl RenderDelegate for CrystalRenderDelgate {
             &self.colors_buffer_gpu,
             &self.index_buffer,
             &self.uniform_buffer,
+            &self.pipeline,
         ) {
             (
                 Some(vertex_buffer),
@@ -538,6 +538,7 @@ impl RenderDelegate for CrystalRenderDelgate {
                 Some(colors_buffer_gpu),
                 Some(index_buffer),
                 Some(uniform_buffer),
+                Some(pipeline),
             ) => {
                 let uniform_buffer_subbuffer = {
                     let dimensions = render_test.dimension();
@@ -589,13 +590,13 @@ impl RenderDelegate for CrystalRenderDelgate {
                     set.clone(),
                     (),
                 )
-                .unwrap()
-                .end_render_pass()
                 .unwrap();
 
-                // if let Some(text_console) = &mut self.text_console {
-                //     builder = text_console.render(builder, framebuffer, pipeline);
-                // }
+                if let Some(text_console) = &mut self.text_console {
+                    builder = text_console.render(builder, framebuffer);
+                }
+
+                let builder = builder.end_render_pass().unwrap();
 
                 Some(Box::new(builder.build().unwrap()))
             }

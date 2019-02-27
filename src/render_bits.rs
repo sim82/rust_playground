@@ -367,10 +367,11 @@ impl RenderTest {
 pub trait RenderDelegate {
     fn init(&mut self, render_test: &RenderTest) -> Box<vulkano::sync::GpuFuture>;
     fn shutdown(self);
-    fn create_pipeline(
-        &self,
-        render_test: &RenderTest,
-    ) -> Arc<GraphicsPipelineAbstract + Send + Sync>;
+    fn framebuffer_changed(&mut self, render_test: &RenderTest);
+    // fn create_pipeline(
+    //     &self,
+    //     render_test: &RenderTest,
+    // ) -> Arc<GraphicsPipelineAbstract + Send + Sync>;
 
     fn update(&mut self, render_test: &RenderTest, input_state: &InputState) -> Box<GpuFuture>;
 
@@ -378,7 +379,6 @@ pub trait RenderDelegate {
         &mut self,
         render_test: &RenderTest,
         framebuffer: Arc<vulkano::framebuffer::FramebufferAbstract + Send + Sync>,
-        pipeline: Arc<GraphicsPipelineAbstract + Send + Sync>,
     ) -> Option<
         Box<
             vulkano::command_buffer::CommandBuffer<
@@ -393,7 +393,8 @@ pub fn render_test(delegate: &mut RenderDelegate) {
     //let vertex_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), vertices).unwrap();
 
     let mut framebuffers = render_test.window_size_dependent_setup();
-    let mut pipeline = delegate.create_pipeline(&render_test);
+    delegate.framebuffer_changed(&render_test);
+    // let mut pipeline = delegate.create_pipeline(&render_test);
     let mut recreate_swapchain = false;
 
     let mut previous_frame = delegate.init(&render_test);
@@ -404,8 +405,9 @@ pub fn render_test(delegate: &mut RenderDelegate) {
         previous_frame.cleanup_finished();
 
         if recreate_swapchain {
-            framebuffers = render_test.recreate_swapchain();
-            pipeline = delegate.create_pipeline(&render_test);
+            // framebuffers = render_test.recreate_swapchain();
+            delegate.framebuffer_changed(&render_test);
+            // pipeline = delegate.create_pipeline(&render_test);
             recreate_swapchain = false;
         }
         let (image_num, acquire_future) =
@@ -419,11 +421,7 @@ pub fn render_test(delegate: &mut RenderDelegate) {
             };
 
         let update_fut = delegate.update(&render_test, &input_state);
-        let command_buffer = delegate.frame(
-            &render_test,
-            framebuffers[image_num].clone(),
-            pipeline.clone(),
-        );
+        let command_buffer = delegate.frame(&render_test, framebuffers[image_num].clone());
         input_state.d_lon = Deg(0f32);
         input_state.d_lat = Deg(0f32);
 
