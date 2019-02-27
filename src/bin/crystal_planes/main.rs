@@ -1,5 +1,6 @@
 use rust_playground::{crystal, render_bits};
 
+use crate::render_bits::text_console::TextConsole;
 use crate::render_bits::InputState;
 use crate::render_bits::PlayerFlyModel;
 use crate::render_bits::RenderDelegate;
@@ -259,6 +260,8 @@ struct CrystalRenderDelgate {
 
     rad_worker: Option<RadWorker>,
     tx_pos: Option<Sender<GameEvent>>,
+
+    text_console: Option<TextConsole>,
 }
 
 impl CrystalRenderDelgate {
@@ -282,6 +285,8 @@ impl CrystalRenderDelgate {
 
             rad_worker: None,
             tx_pos: None,
+
+            text_console: None,
         }
     }
 }
@@ -375,6 +380,8 @@ impl RenderDelegate for CrystalRenderDelgate {
         // println!("send");
         self.tx_pos = Some(tx);
         self.rad_worker = Some(RadWorker::start(scene, colors_buffer_pool, colors_cpu, rx));
+
+        self.text_console = Some(TextConsole::new(render_test));
 
         future
     }
@@ -498,7 +505,12 @@ impl RenderDelegate for CrystalRenderDelgate {
 
         // println!("{:?}", self.player_model);
 
-        Box::new(vulkano::sync::now(render_test.device.clone()))
+        if let Some(text_console) = &mut self.text_console {
+            text_console.add_line(&format!("{:?}", Instant::now()));
+            text_console.update(render_test)
+        } else {
+            Box::new(vulkano::sync::now(render_test.device.clone()))
+        }
     }
     fn frame(
         &mut self,
@@ -557,7 +569,7 @@ impl RenderDelegate for CrystalRenderDelgate {
                         .unwrap(),
                 );
 
-                let command_buffer = AutoCommandBufferBuilder::primary_one_time_submit(
+                let mut builder = AutoCommandBufferBuilder::primary_one_time_submit(
                     render_test.device.clone(),
                     render_test.queue.family(),
                 )
@@ -579,10 +591,13 @@ impl RenderDelegate for CrystalRenderDelgate {
                 )
                 .unwrap()
                 .end_render_pass()
-                .unwrap()
-                .build()
                 .unwrap();
-                Some(Box::new(command_buffer))
+
+                // if let Some(text_console) = &mut self.text_console {
+                //     builder = text_console.render(builder, framebuffer, pipeline);
+                // }
+
+                Some(Box::new(builder.build().unwrap()))
             }
 
             _ => {
