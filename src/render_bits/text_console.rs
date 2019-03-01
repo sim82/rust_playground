@@ -16,6 +16,7 @@ use std::iter;
 use std::sync::Arc;
 
 use glyph_brush::{rusttype, BrushAction, BrushError, GlyphBrush, GlyphBrushBuilder, Section};
+use std::sync::mpsc::{channel, sync_channel, Receiver, Sender};
 
 #[derive(Copy, Clone)]
 pub struct Color {
@@ -71,10 +72,14 @@ pub struct TextConsole {
     sampler: Arc<vulkano::sampler::Sampler>,
     pipeline: Option<Arc<GraphicsPipelineAbstract + Send + Sync>>,
     text_lines: Vec<String>,
+
+    tx: Sender<String>,
+    rx: Receiver<String>,
 }
 
 impl TextConsole {
     pub fn new(render_test: &RenderTest) -> Self {
+        let (tx, rx) = channel();
         TextConsole {
             vb_pool: CpuBufferPool::<Vertex>::new(render_test.device.clone(), BufferUsage::all()),
             tb_pool: CpuBufferPool::<TexCoord>::new(render_test.device.clone(), BufferUsage::all()),
@@ -105,6 +110,8 @@ impl TextConsole {
             )
             .unwrap(),
             pipeline: None,
+            tx: tx,
+            rx: rx,
         }
     }
 
@@ -146,7 +153,18 @@ impl TextConsole {
         }
     }
 
+    pub fn receive(&mut self) {
+        loop {
+            match self.rx.try_recv() {
+                Ok(string) => self.add_line(&string),
+                _ => break,
+            }
+        }
+    }
+
     pub fn update(&mut self, render_test: &RenderTest) -> Box<vulkano::sync::GpuFuture> {
+        self.receive();
+
         let font_size = (16f64 * render_test.surface.window().get_hidpi_factor()) as f32;
         for (i, line) in self.text_lines.iter().enumerate() {
             self.brush.queue(Section {
@@ -274,58 +292,50 @@ impl TextConsole {
         builder: AutoCommandBufferBuilder<PoolBuilder>,
         framebuffer: Arc<FramebufferAbstract + Send + Sync>,
     ) -> AutoCommandBufferBuilder<PoolBuilder> {
-        if self.buffers.is_none() || self.pipeline.is_none() {
-            return builder;
-        }
+        if let (Some(buffers), Some(glyph_image), Some(pipeline)) =
+            (&self.buffers, &self.glyph_image, &self.pipeline)
+        {
+            let uniform_buffer_subbuffer = {
+                let width = framebuffer.width();
+                let height = framebuffer.height();
 
-        let buffers = self.buffers.as_mut().unwrap();
-        let pipeline = self.pipeline.as_ref().unwrap();
+                let unity = Matrix4::from_scale(1f32);
+                let uniform_data = vs::ty::Data {
+                    view: unity.into(),
+                    world: unity.into(),
+                    proj: render_bits::math::canvas_projection(width, height).into(),
+                };
 
-        let uniform_buffer_subbuffer = {
-            let width = framebuffer.width();
-            let height = framebuffer.height();
-
-            let unity = Matrix4::from_scale(1f32);
-            let uniform_data = vs::ty::Data {
-                view: unity.into(),
-                world: unity.into(),
-                proj: render_bits::math::canvas_projection(width, height).into(),
+                self.ub_pool.next(uniform_data).unwrap()
             };
 
-            self.ub_pool.next(uniform_data).unwrap()
-        };
+            let set = Arc::new(
+                PersistentDescriptorSet::start(pipeline.clone(), 0)
+                    .add_buffer(uniform_buffer_subbuffer)
+                    .unwrap()
+                    .add_sampled_image(glyph_image.clone(), self.sampler.clone())
+                    .unwrap()
+                    .build()
+                    .unwrap(),
+            );
 
-        let set = Arc::new(
-            PersistentDescriptorSet::start(pipeline.clone(), 0)
-                .add_buffer(uniform_buffer_subbuffer)
-                .unwrap()
-                .add_sampled_image(
-                    self.glyph_image.as_mut().unwrap().clone(),
-                    self.sampler.clone(),
+            builder
+                .draw_indexed(
+                    pipeline.clone(),
+                    &DynamicState::none(),
+                    vec![buffers.vb.clone(), buffers.tb.clone()],
+                    buffers.ib.clone(),
+                    set.clone(),
+                    (),
                 )
                 .unwrap()
-                .build()
-                .unwrap(),
-        );
+        } else {
+            builder
+        }
+    }
 
-        builder
-            // .begin_render_pass(
-            //     framebuffer.clone(),
-            //     false,
-            //     vec![[0.0, 0.0, 1.0, 1.0].into(), 1f32.into()],
-            // )
-            // .unwrap()
-            .draw_indexed(
-                pipeline.clone(),
-                &DynamicState::none(),
-                vec![buffers.vb.clone(), buffers.tb.clone()],
-                buffers.ib.clone(),
-                set.clone(),
-                (),
-            )
-            .unwrap()
-        // .end_render_pass()
-        // .unwrap()
+    pub fn get_sender(&self) -> Sender<String> {
+        self.tx.clone()
     }
 }
 

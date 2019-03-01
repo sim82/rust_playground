@@ -43,6 +43,7 @@ struct TestDelgate {
     colors_buffer_gpu: Option<Arc<ImmutableBuffer<[Color]>>>,
     index_buffer: Option<Arc<ImmutableBuffer<[u32]>>>,
     uniform_buffer: Option<CpuBufferPool<vs::ty::Data>>,
+    pipeline: Option<Arc<GraphicsPipelineAbstract + Send + Sync>>,
     last_time: std::time::Instant,
 }
 impl TestDelgate {
@@ -59,6 +60,7 @@ impl TestDelgate {
             // colors_buffer: None,
             index_buffer: None,
             uniform_buffer: None,
+            pipeline: None,
             // colors_cpu: Vec::new(),
             last_time: Instant::now(),
             // scene: None,
@@ -163,10 +165,7 @@ impl RenderDelegate for TestDelgate {
     }
     fn shutdown(self) {}
 
-    fn create_pipeline(
-        &self,
-        render_test: &RenderTest,
-    ) -> Arc<GraphicsPipelineAbstract + Send + Sync> {
+    fn framebuffer_changed(&mut self, render_test: &RenderTest) {
         let vs = vs::Shader::load(render_test.device.clone()).unwrap();
         let fs = fs::Shader::load(render_test.device.clone()).unwrap();
         let dimensions = render_test.dimension();
@@ -174,7 +173,7 @@ impl RenderDelegate for TestDelgate {
         // However in the teapot example, we recreate the pipelines with a hardcoded viewport instead.
         // This allows the driver to optimize things, at the cost of slower window resizes.
         // https://computergraphics.stackexchange.com/questions/5742/vulkan-best-way-of-updating-pipeline-viewport
-        Arc::new(
+        self.pipeline = Some(Arc::new(
             GraphicsPipeline::start()
                 .vertex_input(TwoBuffersDefinition::<Vertex, Color>::new())
                 .vertex_shader(vs.main_entry_point(), ())
@@ -187,12 +186,13 @@ impl RenderDelegate for TestDelgate {
                     dimensions: [dimensions[0] as f32, dimensions[1] as f32],
                     depth_range: 0.0..1.0,
                 }))
+                .blend_alpha_blending()
                 .fragment_shader(fs.main_entry_point(), ())
                 .depth_stencil_simple_depth()
                 .render_pass(Subpass::from(render_test.render_pass.clone(), 0).unwrap())
                 .build(render_test.device.clone())
                 .unwrap(),
-        )
+        ));
     }
 
     fn update(&mut self, render_test: &RenderTest, input_state: &InputState) -> Box<GpuFuture> {
@@ -228,7 +228,6 @@ impl RenderDelegate for TestDelgate {
         render_test: &RenderTest,
         // input_state: &InputState,
         framebuffer: Arc<FramebufferAbstract + Send + Sync>,
-        pipeline: Arc<GraphicsPipelineAbstract + Send + Sync>,
     ) -> Option<
         Box<
             vulkano::command_buffer::CommandBuffer<
@@ -242,6 +241,7 @@ impl RenderDelegate for TestDelgate {
             &self.colors_buffer_gpu,
             &self.index_buffer,
             &self.uniform_buffer,
+            &self.pipeline,
         ) {
             (
                 Some(vertex_buffer),
@@ -249,6 +249,7 @@ impl RenderDelegate for TestDelgate {
                 Some(colors_buffer_gpu),
                 Some(index_buffer),
                 Some(uniform_buffer),
+                Some(pipeline),
             ) => {
                 let uniform_buffer_subbuffer = {
                     let dimensions = render_test.dimension();

@@ -84,6 +84,7 @@ impl RadWorker {
         colors_buffer_pool: CpuBufferPool<Color>,
         mut colors_cpu: Vec<Color>,
         rx_event: Receiver<GameEvent>,
+        tx_console: Sender<String>,
     ) -> RadWorker {
         let (tx, rx) = sync_channel(2);
 
@@ -231,6 +232,7 @@ impl RadWorker {
                     scene.pints = 0;
 
                     println!("pint/s: {:e}", pintss);
+                    tx_console.send(format!("bounces/s: {:e}", pintss));
                     last_stat = Instant::now();
                 }
             }
@@ -381,9 +383,16 @@ impl RenderDelegate for CrystalRenderDelgate {
 
         // println!("send");
         self.tx_pos = Some(tx);
-        self.rad_worker = Some(RadWorker::start(scene, colors_buffer_pool, colors_cpu, rx));
 
         self.text_console = Some(TextConsole::new(render_test));
+
+        self.rad_worker = Some(RadWorker::start(
+            scene,
+            colors_buffer_pool,
+            colors_cpu,
+            rx,
+            self.text_console.as_ref().unwrap().get_sender(),
+        ));
 
         future
     }
@@ -506,7 +515,7 @@ impl RenderDelegate for CrystalRenderDelgate {
         // println!("{:?}", self.player_model);
 
         if let Some(text_console) = &mut self.text_console {
-            text_console.add_line(&format!("{:?}", Instant::now()));
+            // text_console.add_line(&format!("{:?}", Instant::now()));
             text_console.update(render_test)
         } else {
             Box::new(vulkano::sync::now(render_test.device.clone()))
