@@ -16,7 +16,8 @@ use std::iter;
 use std::sync::Arc;
 
 use glyph_brush::{rusttype, BrushAction, BrushError, GlyphBrush, GlyphBrushBuilder, Section};
-use std::sync::mpsc::{channel, sync_channel, Receiver, Sender};
+use image::ImageBuffer;
+use std::sync::mpsc::{channel, Receiver, Sender};
 
 #[derive(Copy, Clone)]
 pub struct Color {
@@ -235,6 +236,54 @@ impl TextConsole {
                         });
                     }
 
+                    if false {
+                        let (width, height) = self.brush.texture_dimensions();
+
+                        // let hf = render_test.surface.window().get_hidpi_factor(); // what's with this hidpi crap?
+                        let hf = 1f64;
+                        let screen_width = (dimensions[0] as f64 * hf) as i32;
+                        let screen_height = (dimensions[1] as f64 * hf) as i32;
+
+                        let vmin = rusttype::Point::<i32> {
+                            x: screen_width - width as i32,
+                            y: screen_height - height as i32,
+                        };
+                        let vmax = rusttype::Point::<i32> {
+                            x: screen_width,
+                            y: screen_height,
+                        };
+
+                        let tmin = rusttype::Point::<f32> { x: 0f32, y: 0f32 };
+                        let tmax = rusttype::Point::<f32> { x: 1f32, y: 1f32 };
+
+                        let v = verts.len() as u32;
+                        indices.append(&mut vec![v, v + 1, v + 2, v, v + 2, v + 3]);
+
+                        verts.push(Vertex {
+                            position: (vmin.x as f32, vmin.y as f32, 0f32),
+                        });
+                        verts.push(Vertex {
+                            position: (vmax.x as f32, vmin.y as f32, 0f32),
+                        });
+                        verts.push(Vertex {
+                            position: (vmax.x as f32, vmax.y as f32, 0f32),
+                        });
+                        verts.push(Vertex {
+                            position: (vmin.x as f32, vmax.y as f32, 0f32),
+                        });
+                        tex.push(TexCoord {
+                            tex: (tmin.x as f32, tmin.y as f32),
+                        });
+                        tex.push(TexCoord {
+                            tex: (tmax.x as f32, tmin.y as f32),
+                        });
+                        tex.push(TexCoord {
+                            tex: (tmax.x as f32, tmax.y as f32),
+                        });
+                        tex.push(TexCoord {
+                            tex: (tmin.x as f32, tmax.y as f32),
+                        });
+                    }
                     self.buffers = Some(TextConsoleBuffers {
                         vb: Arc::new(self.vb_pool.chunk(verts.iter().cloned()).unwrap()),
                         tb: Arc::new(self.tb_pool.chunk(tex.iter().cloned()).unwrap()),
@@ -272,14 +321,15 @@ impl TextConsole {
                 render_test.queue.clone(),
             )
             .unwrap();
-
-            // let image = ImageBuffer::<image::Luma<u8>, _>::from_raw(
-            //     test_data.width,
-            //     test_data.height,
-            //     &test_data.glyph_data[..],
-            // )
-            // .unwrap();
-            // image.save("font.png").unwrap();
+            if false {
+                let image = ImageBuffer::<image::Luma<u8>, _>::from_raw(
+                    width,
+                    height,
+                    &self.glyph_data[..],
+                )
+                .unwrap();
+                image.save("font.png").unwrap();
+            }
             self.glyph_image = Some(gi);
             Box::new(gi_fut)
         } else {
