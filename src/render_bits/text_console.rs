@@ -76,11 +76,60 @@ pub struct TextConsole {
 
     tx: Sender<String>,
     rx: Receiver<String>,
+
+    input_line: String,
+    input_source: Receiver<(winit::VirtualKeyCode, winit::ElementState)>,
+}
+
+fn map_to_visible(keycode: winit::VirtualKeyCode) -> Option<char> {
+    match keycode {
+        winit::VirtualKeyCode::Q => Some('q'),
+        winit::VirtualKeyCode::W => Some('w'),
+        winit::VirtualKeyCode::E => Some('e'),
+        winit::VirtualKeyCode::R => Some('r'),
+        winit::VirtualKeyCode::T => Some('t'),
+        winit::VirtualKeyCode::Y => Some('y'),
+        winit::VirtualKeyCode::U => Some('u'),
+        winit::VirtualKeyCode::I => Some('i'),
+        winit::VirtualKeyCode::O => Some('o'),
+        winit::VirtualKeyCode::P => Some('p'),
+        winit::VirtualKeyCode::A => Some('a'),
+        winit::VirtualKeyCode::S => Some('s'),
+        winit::VirtualKeyCode::D => Some('d'),
+        winit::VirtualKeyCode::F => Some('f'),
+        winit::VirtualKeyCode::G => Some('g'),
+        winit::VirtualKeyCode::H => Some('h'),
+        winit::VirtualKeyCode::J => Some('j'),
+        winit::VirtualKeyCode::K => Some('k'),
+        winit::VirtualKeyCode::Z => Some('z'),
+        winit::VirtualKeyCode::X => Some('x'),
+        winit::VirtualKeyCode::C => Some('c'),
+        winit::VirtualKeyCode::V => Some('v'),
+        winit::VirtualKeyCode::B => Some('b'),
+        winit::VirtualKeyCode::N => Some('n'),
+        winit::VirtualKeyCode::M => Some('m'),
+        winit::VirtualKeyCode::Key1 => Some('1'),
+        winit::VirtualKeyCode::Key2 => Some('2'),
+        winit::VirtualKeyCode::Key3 => Some('3'),
+        winit::VirtualKeyCode::Key4 => Some('4'),
+        winit::VirtualKeyCode::Key5 => Some('5'),
+        winit::VirtualKeyCode::Key6 => Some('6'),
+        winit::VirtualKeyCode::Key7 => Some('7'),
+        winit::VirtualKeyCode::Key8 => Some('8'),
+        winit::VirtualKeyCode::Key9 => Some('9'),
+        winit::VirtualKeyCode::Key0 => Some('0'),
+        winit::VirtualKeyCode::Space => Some(' '),
+
+        _ => None,
+    }
 }
 
 impl TextConsole {
-    pub fn new(render_test: &RenderTest) -> Self {
+    pub fn new(render_test: &mut RenderTest) -> Self {
         let (tx, rx) = channel();
+        let (input_tx, input_rx) = channel();
+
+        render_test.add_input_sink(input_tx);
         TextConsole {
             vb_pool: CpuBufferPool::<Vertex>::new(render_test.device.clone(), BufferUsage::all()),
             tb_pool: CpuBufferPool::<TexCoord>::new(render_test.device.clone(), BufferUsage::all()),
@@ -113,6 +162,8 @@ impl TextConsole {
             pipeline: None,
             tx: tx,
             rx: rx,
+            input_line: "".into(),
+            input_source: input_rx,
         }
     }
 
@@ -161,13 +212,50 @@ impl TextConsole {
                 _ => break,
             }
         }
+
+        loop {
+            // let input_events = Vec::new();
+
+            let mut exec_lines = Vec::new();
+            match self.input_source.try_recv() {
+                Ok((keycode, state)) => {
+                    if state == winit::ElementState::Pressed {
+                        if let Some(c) = map_to_visible(keycode) {
+                            self.input_line.push(c);
+                        } else {
+                            match keycode {
+                                winit::VirtualKeyCode::Back => {
+                                    if !self.input_line.is_empty() {
+                                        self.input_line.pop();
+                                    }
+                                }
+                                winit::VirtualKeyCode::Return => {
+                                    exec_lines.push(self.input_line.clone());
+                                    // self.add_line(&self.input_line);
+                                    self.input_line.clear();
+                                }
+                                _ => (),
+                            }
+                        }
+                    }
+                }
+                _ => break,
+            }
+
+            for line in exec_lines {
+                self.add_line(&line);
+            }
+        }
     }
 
     pub fn update(&mut self, render_test: &RenderTest) -> Box<vulkano::sync::GpuFuture> {
         self.receive();
 
         let font_size = (16f64 * render_test.surface.window().get_hidpi_factor()) as f32;
-        for (i, line) in self.text_lines.iter().enumerate() {
+
+        let mut text_lines2 = self.text_lines.clone();
+        text_lines2.push(self.input_line.clone());
+        for (i, line) in text_lines2.iter().enumerate() {
             self.brush.queue(Section {
                 //text: "MMMHello qwertyuiopasdfghjklzxcvbnmQWERTYUIOASDFGHJKLZXCVBNM",
                 text: line,
@@ -236,7 +324,7 @@ impl TextConsole {
                         });
                     }
 
-                    if false {
+                    if true {
                         let (width, height) = self.brush.texture_dimensions();
 
                         // let hf = render_test.surface.window().get_hidpi_factor(); // what's with this hidpi crap?

@@ -69,7 +69,7 @@ impl TestDelgate {
 }
 
 impl RenderDelegate for TestDelgate {
-    fn init(&mut self, render_test: &RenderTest) -> Box<vulkano::sync::GpuFuture> {
+    fn init(&mut self, render_test: &mut RenderTest) -> Box<vulkano::sync::GpuFuture> {
         //self.vertex_buffer = vulkano::buffer::CpuAccessibleBuffer::from_data(device: Arc<Device>, usage: BufferUsage, data: T)
 
         let (vb, vb_fut) = vulkano::buffer::ImmutableBuffer::from_iter(

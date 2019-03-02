@@ -37,6 +37,8 @@ use winit::Window;
 use cgmath::prelude::*;
 use cgmath::{Deg, Matrix4, Point3, Vector4};
 
+use std::collections::HashSet;
+use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
 pub mod math;
@@ -186,6 +188,8 @@ pub struct RenderTest {
     swapchain: Arc<Swapchain<Window>>,
     images: Vec<Arc<SwapchainImage<Window>>>,
     pub render_pass: Arc<RenderPassAbstract + Send + Sync>,
+
+    input_sinks: Vec<Sender<(winit::VirtualKeyCode, winit::ElementState)>>,
 }
 
 impl RenderTest {
@@ -310,6 +314,7 @@ impl RenderTest {
             swapchain: swapchain,
             images: images,
             render_pass: render_pass,
+            input_sinks: Vec::new(),
         }
     }
 
@@ -362,10 +367,145 @@ impl RenderTest {
 
         framebuffers
     }
+
+    fn main_loop(&mut self, delegate: &mut dyn RenderDelegate) {
+        let mut framebuffers = self.window_size_dependent_setup();
+        delegate.framebuffer_changed(self);
+        // let mut pipeline = delegate.create_pipeline(&self);
+        let mut recreate_swapchain = false;
+
+        let mut previous_frame = delegate.init(self);
+        let mut old_pos = None as Option<winit::dpi::LogicalPosition>;
+        let mut input_state = InputState::new();
+
+        loop {
+            previous_frame.cleanup_finished();
+
+            if recreate_swapchain {
+                // framebuffers = self.recreate_swapchain();
+                delegate.framebuffer_changed(&self);
+                // pipeline = delegate.create_pipeline(&self);
+                recreate_swapchain = false;
+            }
+            let (image_num, acquire_future) =
+                match swapchain::acquire_next_image(self.swapchain.clone(), None) {
+                    Ok(r) => r,
+                    Err(AcquireError::OutOfDate) => {
+                        recreate_swapchain = true;
+                        continue;
+                    }
+                    Err(err) => panic!("{:?}", err),
+                };
+
+            let update_fut = delegate.update(&self, &input_state);
+            let command_buffer = delegate.frame(&self, framebuffers[image_num].clone());
+            input_state.d_lon = Deg(0f32);
+            input_state.d_lat = Deg(0f32);
+
+            if let Some(command_buffer) = command_buffer {
+                let future = previous_frame
+                    .join(update_fut)
+                    .join(acquire_future)
+                    .then_execute(self.queue.clone(), command_buffer)
+                    .unwrap()
+                    .then_swapchain_present(self.queue.clone(), self.swapchain.clone(), image_num)
+                    .then_signal_fence_and_flush();
+
+                match future {
+                    Ok(future) => {
+                        previous_frame = Box::new(future) as Box<_>;
+                    }
+                    Err(sync::FlushError::OutOfDate) => {
+                        recreate_swapchain = true;
+                        previous_frame = Box::new(sync::now(self.device.clone())) as Box<_>;
+                    }
+                    Err(e) => {
+                        println!("{:?}", e);
+                        previous_frame = Box::new(sync::now(self.device.clone())) as Box<_>;
+                    }
+                }
+            };
+
+            let mut done = false;
+            let mut key_events = Vec::new();
+
+            // let input_sinks = self.input_sinks.clone();
+            // let mut down_keys = HashSet::new();
+            self.events_loop.poll_events(|ev| match ev {
+                winit::Event::WindowEvent {
+                    event: winit::WindowEvent::CloseRequested,
+                    ..
+                } => done = true,
+                winit::Event::WindowEvent {
+                    event: winit::WindowEvent::Resized(_),
+                    ..
+                } => recreate_swapchain = true,
+                winit::Event::WindowEvent {
+                    event: winit::WindowEvent::CursorMoved { position: pos, .. },
+                    ..
+                } => {
+                    if let Some(op) = old_pos {
+                        input_state.d_lon = Deg((pos.x - op.x) as f32);
+                        input_state.d_lat = Deg((pos.y - op.y) as f32);
+                    }
+
+                    old_pos = Some(pos);
+                }
+                winit::Event::WindowEvent {
+                    event:
+                        winit::WindowEvent::KeyboardInput {
+                            input:
+                                winit::KeyboardInput {
+                                    state,
+                                    virtual_keycode: Some(keycode),
+                                    ..
+                                },
+                            ..
+                        },
+                    ..
+                } => {
+                    key_events.push((keycode, state));
+
+                    let down = state == winit::ElementState::Pressed;
+
+                    match keycode {
+                        winit::VirtualKeyCode::W => input_state.forward = down,
+                        winit::VirtualKeyCode::S => input_state.backward = down,
+                        winit::VirtualKeyCode::A => input_state.left = down,
+                        winit::VirtualKeyCode::D => input_state.right = down,
+                        winit::VirtualKeyCode::I => input_state.z_neg = down,
+                        winit::VirtualKeyCode::K => input_state.z_pos = down,
+                        winit::VirtualKeyCode::J => input_state.x_neg = down,
+                        winit::VirtualKeyCode::L => input_state.x_pos = down,
+                        winit::VirtualKeyCode::Q => input_state.action1 = down,
+                        winit::VirtualKeyCode::E => input_state.action2 = down,
+                        winit::VirtualKeyCode::LShift | winit::VirtualKeyCode::RShift => {
+                            input_state.run = down
+                        }
+                        winit::VirtualKeyCode::F3 => done = true,
+                        _ => {}
+                    }
+                }
+                _ => (),
+            });
+
+            for (keycode, state) in key_events {
+                self.input_sinks
+                    .drain_filter(|sink| sink.send((keycode, state)).is_err());
+            }
+            if done {
+                return;
+            }
+        }
+    }
+
+    pub fn add_input_sink(&mut self, sender: Sender<(winit::VirtualKeyCode, winit::ElementState)>) {
+        self.input_sinks.push(sender);
+    }
 }
 
 pub trait RenderDelegate {
-    fn init(&mut self, render_test: &RenderTest) -> Box<vulkano::sync::GpuFuture>;
+    fn init(&mut self, render_test: &mut RenderTest) -> Box<vulkano::sync::GpuFuture>;
     fn shutdown(self);
     fn framebuffer_changed(&mut self, render_test: &RenderTest);
     // fn create_pipeline(
@@ -392,124 +532,5 @@ pub fn render_test(delegate: &mut RenderDelegate) {
     let mut render_test = RenderTest::new();
     //let vertex_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), vertices).unwrap();
 
-    let mut framebuffers = render_test.window_size_dependent_setup();
-    delegate.framebuffer_changed(&render_test);
-    // let mut pipeline = delegate.create_pipeline(&render_test);
-    let mut recreate_swapchain = false;
-
-    let mut previous_frame = delegate.init(&render_test);
-    let mut old_pos = None as Option<winit::dpi::LogicalPosition>;
-    let mut input_state = InputState::new();
-
-    loop {
-        previous_frame.cleanup_finished();
-
-        if recreate_swapchain {
-            // framebuffers = render_test.recreate_swapchain();
-            delegate.framebuffer_changed(&render_test);
-            // pipeline = delegate.create_pipeline(&render_test);
-            recreate_swapchain = false;
-        }
-        let (image_num, acquire_future) =
-            match swapchain::acquire_next_image(render_test.swapchain.clone(), None) {
-                Ok(r) => r,
-                Err(AcquireError::OutOfDate) => {
-                    recreate_swapchain = true;
-                    continue;
-                }
-                Err(err) => panic!("{:?}", err),
-            };
-
-        let update_fut = delegate.update(&render_test, &input_state);
-        let command_buffer = delegate.frame(&render_test, framebuffers[image_num].clone());
-        input_state.d_lon = Deg(0f32);
-        input_state.d_lat = Deg(0f32);
-
-        if let Some(command_buffer) = command_buffer {
-            let future = previous_frame
-                .join(update_fut)
-                .join(acquire_future)
-                .then_execute(render_test.queue.clone(), command_buffer)
-                .unwrap()
-                .then_swapchain_present(
-                    render_test.queue.clone(),
-                    render_test.swapchain.clone(),
-                    image_num,
-                )
-                .then_signal_fence_and_flush();
-
-            match future {
-                Ok(future) => {
-                    previous_frame = Box::new(future) as Box<_>;
-                }
-                Err(sync::FlushError::OutOfDate) => {
-                    recreate_swapchain = true;
-                    previous_frame = Box::new(sync::now(render_test.device.clone())) as Box<_>;
-                }
-                Err(e) => {
-                    println!("{:?}", e);
-                    previous_frame = Box::new(sync::now(render_test.device.clone())) as Box<_>;
-                }
-            }
-        };
-
-        let mut done = false;
-        render_test.events_loop.poll_events(|ev| match ev {
-            winit::Event::WindowEvent {
-                event: winit::WindowEvent::CloseRequested,
-                ..
-            } => done = true,
-            winit::Event::WindowEvent {
-                event: winit::WindowEvent::Resized(_),
-                ..
-            } => recreate_swapchain = true,
-            winit::Event::WindowEvent {
-                event: winit::WindowEvent::CursorMoved { position: pos, .. },
-                ..
-            } => {
-                if let Some(op) = old_pos {
-                    input_state.d_lon = Deg((pos.x - op.x) as f32);
-                    input_state.d_lat = Deg((pos.y - op.y) as f32);
-                }
-
-                old_pos = Some(pos);
-            }
-            winit::Event::WindowEvent {
-                event:
-                    winit::WindowEvent::KeyboardInput {
-                        input:
-                            winit::KeyboardInput {
-                                state,
-                                virtual_keycode: Some(keycode),
-                                ..
-                            },
-                        ..
-                    },
-                ..
-            } => {
-                let down = state == winit::ElementState::Pressed;
-                match keycode {
-                    winit::VirtualKeyCode::W => input_state.forward = down,
-                    winit::VirtualKeyCode::S => input_state.backward = down,
-                    winit::VirtualKeyCode::A => input_state.left = down,
-                    winit::VirtualKeyCode::D => input_state.right = down,
-                    winit::VirtualKeyCode::I => input_state.z_neg = down,
-                    winit::VirtualKeyCode::K => input_state.z_pos = down,
-                    winit::VirtualKeyCode::J => input_state.x_neg = down,
-                    winit::VirtualKeyCode::L => input_state.x_pos = down,
-                    winit::VirtualKeyCode::Q => input_state.action1 = down,
-                    winit::VirtualKeyCode::E => input_state.action2 = down,
-                    winit::VirtualKeyCode::LShift | winit::VirtualKeyCode::RShift => {
-                        input_state.run = down
-                    }
-                    winit::VirtualKeyCode::F3 => done = true,
-                    _ => {}
-                }
-            }
-            _ => (),
-        });
-        if done {
-            return;
-        }
-    }
+    render_test.main_loop(delegate);
 }

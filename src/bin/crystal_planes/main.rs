@@ -296,7 +296,7 @@ impl CrystalRenderDelgate {
 }
 
 impl RenderDelegate for CrystalRenderDelgate {
-    fn init(&mut self, render_test: &RenderTest) -> Box<vulkano::sync::GpuFuture> {
+    fn init(&mut self, render_test: &mut RenderTest) -> Box<vulkano::sync::GpuFuture> {
         let scene;
         {
             let bm = crystal::read_map("hidden_ramp.txt").expect("could not read file");

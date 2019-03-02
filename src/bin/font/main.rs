@@ -27,7 +27,7 @@ impl TestDelgate {
 }
 
 impl RenderDelegate for TestDelgate {
-    fn init(&mut self, render_test: &RenderTest) -> Box<vulkano::sync::GpuFuture> {
+    fn init(&mut self, render_test: &mut RenderTest) -> Box<vulkano::sync::GpuFuture> {
         self.text_console = Some(render_bits::text_console::TextConsole::new(render_test));
         Box::new(vulkano::sync::now(render_test.device.clone()))
     }
