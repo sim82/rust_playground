@@ -101,6 +101,7 @@ fn map_to_visible(keycode: winit::VirtualKeyCode) -> Option<char> {
         winit::VirtualKeyCode::H => Some('h'),
         winit::VirtualKeyCode::J => Some('j'),
         winit::VirtualKeyCode::K => Some('k'),
+        winit::VirtualKeyCode::L => Some('l'),
         winit::VirtualKeyCode::Z => Some('z'),
         winit::VirtualKeyCode::X => Some('x'),
         winit::VirtualKeyCode::C => Some('c'),
