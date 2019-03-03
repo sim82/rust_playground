@@ -456,7 +456,7 @@ impl RenderDelegate for CrystalRenderDelgate {
             text_console.framebuffer_changed(render_test);
         }
     }
-    fn update(&mut self, render_test: &RenderTest, _input_state: &InputState) -> Box<GpuFuture> {
+    fn update(&mut self, render_test: &RenderTest) -> Box<GpuFuture> {
         // let now = Instant::now();
         // let d_time = now - self.last_time;
         self.last_time = Instant::now();

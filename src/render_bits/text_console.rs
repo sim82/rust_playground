@@ -268,7 +268,7 @@ impl TextConsole {
         il += &self.input_line;
         il += "_";
         let il2 = [il];
-        let text_lines2: Box<std::iter::Iterator<Item = &String>> = if self.key_focus {
+        let lines_iter: Box<std::iter::Iterator<Item = &String>> = if self.key_focus {
             Box::new(self.text_lines.iter().chain(il2.iter()))
         } else {
             let num = 5;
@@ -278,7 +278,7 @@ impl TextConsole {
                 Box::new(self.text_lines[self.text_lines.len() - num..].iter())
             }
         };
-        for (i, line) in text_lines2.enumerate() {
+        for (i, line) in lines_iter.enumerate() {
             self.brush.queue(Section {
                 //text: "MMMHello qwertyuiopasdfghjklzxcvbnmQWERTYUIOASDFGHJKLZXCVBNM",
                 text: line,

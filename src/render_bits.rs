@@ -499,14 +499,13 @@ impl RenderTest {
     }
 
     fn main_loop(&mut self, delegate: &mut dyn RenderDelegate) {
-        let mut framebuffers = self.window_size_dependent_setup();
+        let framebuffers = self.window_size_dependent_setup();
         delegate.framebuffer_changed(self);
         // let mut pipeline = delegate.create_pipeline(&self);
         let mut recreate_swapchain = false;
 
         let mut previous_frame = delegate.init(self);
         let mut old_pos = None as Option<winit::dpi::LogicalPosition>;
-        let mut input_state = InputState::new();
 
         loop {
             previous_frame.cleanup_finished();
@@ -527,10 +526,8 @@ impl RenderTest {
                     Err(err) => panic!("{:?}", err),
                 };
 
-            let update_fut = delegate.update(&self, &input_state);
+            let update_fut = delegate.update(&self);
             let command_buffer = delegate.frame(&self, framebuffers[image_num].clone());
-            input_state.d_lon = Deg(0f32);
-            input_state.d_lat = Deg(0f32);
 
             if let Some(command_buffer) = command_buffer {
                 let future = previous_frame
@@ -600,23 +597,7 @@ impl RenderTest {
                     ..
                 } => {
                     events.push(InputEvent::Key(keycode, state));
-
-                    // let down = state == winit::ElementState::Pressed;
-
                     match keycode {
-                        // winit::VirtualKeyCode::W => input_state.forward = down,
-                        // winit::VirtualKeyCode::S => input_state.backward = down,
-                        // winit::VirtualKeyCode::A => input_state.left = down,
-                        // winit::VirtualKeyCode::D => input_state.right = down,
-                        // winit::VirtualKeyCode::I => input_state.z_neg = down,
-                        // winit::VirtualKeyCode::K => input_state.z_pos = down,
-                        // winit::VirtualKeyCode::J => input_state.x_neg = down,
-                        // winit::VirtualKeyCode::L => input_state.x_pos = down,
-                        // winit::VirtualKeyCode::Q => input_state.action1 = down,
-                        // winit::VirtualKeyCode::E => input_state.action2 = down,
-                        // winit::VirtualKeyCode::LShift | winit::VirtualKeyCode::RShift => {
-                        //     input_state.run = down
-                        // }
                         winit::VirtualKeyCode::F3 => done = true,
                         _ => {}
                     }
@@ -648,7 +629,7 @@ pub trait RenderDelegate {
     //     render_test: &RenderTest,
     // ) -> Arc<GraphicsPipelineAbstract + Send + Sync>;
 
-    fn update(&mut self, render_test: &RenderTest, input_state: &InputState) -> Box<GpuFuture>;
+    fn update(&mut self, render_test: &RenderTest) -> Box<GpuFuture>;
 
     fn frame(
         &mut self,
