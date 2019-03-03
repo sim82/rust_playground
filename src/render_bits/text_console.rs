@@ -1,5 +1,5 @@
 use crate::render_bits;
-use crate::render_bits::{RenderTest, TexCoord, Vertex};
+use crate::render_bits::{InputEvent, RenderTest, TexCoord, Vertex};
 use vulkano::buffer::{cpu_pool::CpuBufferPoolChunk, BufferUsage, CpuBufferPool};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
@@ -78,7 +78,10 @@ pub struct TextConsole {
     rx: Receiver<String>,
 
     input_line: String,
-    input_source: Receiver<(winit::VirtualKeyCode, winit::ElementState)>,
+    input_source: Receiver<render_bits::InputEvent>,
+    input_sink: Sender<render_bits::InputEvent>,
+
+    key_focus: bool,
 }
 
 fn map_to_visible(keycode: winit::VirtualKeyCode) -> Option<char> {
@@ -130,7 +133,7 @@ impl TextConsole {
         let (tx, rx) = channel();
         let (input_tx, input_rx) = channel();
 
-        render_test.add_input_sink(input_tx);
+        // render_test.add_input_sink(input_tx);
         TextConsole {
             vb_pool: CpuBufferPool::<Vertex>::new(render_test.device.clone(), BufferUsage::all()),
             tb_pool: CpuBufferPool::<TexCoord>::new(render_test.device.clone(), BufferUsage::all()),
@@ -165,6 +168,8 @@ impl TextConsole {
             rx: rx,
             input_line: "".into(),
             input_source: input_rx,
+            input_sink: input_tx,
+            key_focus: false,
         }
     }
 
@@ -219,7 +224,7 @@ impl TextConsole {
 
             let mut exec_lines = Vec::new();
             match self.input_source.try_recv() {
-                Ok((keycode, state)) => {
+                Ok(InputEvent::Key(keycode, state)) => {
                     if state == winit::ElementState::Pressed {
                         if let Some(c) = map_to_visible(keycode) {
                             self.input_line.push(c);
@@ -240,6 +245,7 @@ impl TextConsole {
                         }
                     }
                 }
+                Ok(InputEvent::KeyFocus(b)) => self.key_focus = b,
                 _ => break,
             }
 
@@ -254,8 +260,28 @@ impl TextConsole {
 
         let font_size = (16f64 * render_test.surface.window().get_hidpi_factor()) as f32;
 
-        let mut text_lines2 = self.text_lines.clone();
-        text_lines2.push(self.input_line.clone());
+        // TODO: I'm sure that this can be solved on the fly with some iterator tricks...
+        let mut text_lines2;
+        if self.key_focus {
+            text_lines2 = self.text_lines.clone();
+            let mut il: String = ">".into();
+            // il.append(self.input_line.clone());
+
+            il += &self.input_line;
+            il += "_";
+            text_lines2.push(il);
+        } else {
+            let num = 5;
+
+            if self.text_lines.len() <= num {
+                text_lines2 = self.text_lines.clone();
+            } else {
+                text_lines2 = self.text_lines[self.text_lines.len() - num..]
+                    .iter()
+                    .cloned()
+                    .collect();
+            }
+        }
         for (i, line) in text_lines2.iter().enumerate() {
             self.brush.queue(Section {
                 //text: "MMMHello qwertyuiopasdfghjklzxcvbnmQWERTYUIOASDFGHJKLZXCVBNM",
@@ -476,7 +502,15 @@ impl TextConsole {
     pub fn get_sender(&self) -> Sender<String> {
         self.tx.clone()
     }
+
+    pub fn get_input_sink(&self) -> Sender<InputEvent> {
+        self.input_sink.clone()
+    }
 }
+
+// struct TabMultiplex {
+//     sender: Sender
+// }
 
 pub mod vs {
     vulkano_shaders::shader! {

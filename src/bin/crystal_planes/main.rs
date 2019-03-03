@@ -1,10 +1,10 @@
 use rust_playground::{crystal, render_bits};
 
 use crate::render_bits::text_console::TextConsole;
-use crate::render_bits::InputState;
 use crate::render_bits::PlayerFlyModel;
 use crate::render_bits::RenderDelegate;
 use crate::render_bits::RenderTest;
+use crate::render_bits::{InputState, InputStateEventDispatcher, TabInputMultiplexer};
 
 use crystal::rad::Scene;
 use crystal::{Bitmap, PlanesSep};
@@ -265,6 +265,10 @@ struct CrystalRenderDelgate {
 
     text_console: Option<TextConsole>,
     pipeline: Option<Arc<GraphicsPipelineAbstract + Send + Sync>>,
+
+    input_state: InputStateEventDispatcher,
+
+    input_multiplexer: TabInputMultiplexer,
 }
 
 impl CrystalRenderDelgate {
@@ -291,6 +295,10 @@ impl CrystalRenderDelgate {
 
             text_console: None,
             pipeline: None,
+
+            input_state: InputStateEventDispatcher::new(),
+
+            input_multiplexer: TabInputMultiplexer::new(),
         }
     }
 }
@@ -394,6 +402,13 @@ impl RenderDelegate for CrystalRenderDelgate {
             self.text_console.as_ref().unwrap().get_sender(),
         ));
 
+        render_test.add_input_sink(self.input_multiplexer.sink.clone());
+
+        self.input_multiplexer.mx_sink1 = Some(self.input_state.sink.clone());
+
+        self.input_multiplexer.mx_sink2 =
+            Some(self.text_console.as_ref().unwrap().get_input_sink().clone());
+
         future
     }
     fn shutdown(self) {
@@ -441,17 +456,19 @@ impl RenderDelegate for CrystalRenderDelgate {
             text_console.framebuffer_changed(render_test);
         }
     }
-    fn update(&mut self, render_test: &RenderTest, input_state: &InputState) -> Box<GpuFuture> {
+    fn update(&mut self, render_test: &RenderTest, _input_state: &InputState) -> Box<GpuFuture> {
         // let now = Instant::now();
         // let d_time = now - self.last_time;
         self.last_time = Instant::now();
-
+        self.input_multiplexer.update();
+        self.input_state.update();
         // println!("time: {:?}", d_time);
 
         // if input_state.action1 || !self.colors_buffer_gpu.is_some() {
         // let mut rng = rand::thread_rng();
 
         // let scene = &mut self.scene.as_mut().unwrap();
+        let input_state = &mut self.input_state.input_state;
         let mut light_update = false;
         if input_state.z_neg {
             self.light_pos -= Vector3::<f32>::unit_z();
@@ -494,8 +511,8 @@ impl RenderDelegate for CrystalRenderDelgate {
             }
         }
 
-        self.player_model.apply_delta_lon(input_state.d_lon);
-        self.player_model.apply_delta_lat(input_state.d_lat);
+        self.player_model.apply_delta_lon(input_state.delta_lon());
+        self.player_model.apply_delta_lat(input_state.delta_lat());
 
         const FORWARD_VEL: f32 = 1.0 / 60.0 * 2.0;
         let boost = if input_state.run { 3.0 } else { 1.0 };

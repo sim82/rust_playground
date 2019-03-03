@@ -38,7 +38,7 @@ use cgmath::prelude::*;
 use cgmath::{Deg, Matrix4, Point3, Vector4};
 
 use std::collections::HashSet;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 
 pub mod math;
@@ -83,6 +83,13 @@ impl From<cgmath::Vector3<f32>> for Normal {
 
 type Vec4 = Vector4<f32>;
 
+#[derive(Copy, Clone)]
+pub enum InputEvent {
+    Key(winit::VirtualKeyCode, winit::ElementState),
+    KeyFocus(bool),
+    PointerDelta(f32, f32),
+}
+
 pub struct PlayerFlyModel {
     lon: Deg<f32>,
     lat: Deg<f32>,
@@ -122,6 +129,18 @@ impl InputState {
             x_neg: false,
             x_pos: false,
         }
+    }
+
+    pub fn delta_lon(&mut self) -> Deg<f32> {
+        let ret = self.d_lon;
+        self.d_lon = Deg(0f32);
+        ret
+    }
+
+    pub fn delta_lat(&mut self) -> Deg<f32> {
+        let ret = self.d_lat;
+        self.d_lat = Deg(0f32);
+        ret
     }
 }
 
@@ -168,6 +187,56 @@ impl PlayerFlyModel {
     }
 }
 
+pub struct InputStateEventDispatcher {
+    pub input_state: InputState,
+    pub sink: Sender<InputEvent>,
+    source: Receiver<InputEvent>,
+}
+
+impl InputStateEventDispatcher {
+    pub fn new() -> InputStateEventDispatcher {
+        let (tx, rx) = std::sync::mpsc::channel();
+        InputStateEventDispatcher {
+            input_state: InputState::new(),
+            sink: tx,
+            source: rx,
+        }
+    }
+
+    pub fn update(&mut self) {
+        loop {
+            match self.source.try_recv() {
+                Ok(InputEvent::Key(keycode, state)) => {
+                    let down = state == winit::ElementState::Pressed;
+
+                    match keycode {
+                        winit::VirtualKeyCode::W => self.input_state.forward = down,
+                        winit::VirtualKeyCode::S => self.input_state.backward = down,
+                        winit::VirtualKeyCode::A => self.input_state.left = down,
+                        winit::VirtualKeyCode::D => self.input_state.right = down,
+                        winit::VirtualKeyCode::I => self.input_state.z_neg = down,
+                        winit::VirtualKeyCode::K => self.input_state.z_pos = down,
+                        winit::VirtualKeyCode::J => self.input_state.x_neg = down,
+                        winit::VirtualKeyCode::L => self.input_state.x_pos = down,
+                        winit::VirtualKeyCode::Q => self.input_state.action1 = down,
+                        winit::VirtualKeyCode::E => self.input_state.action2 = down,
+                        winit::VirtualKeyCode::LShift | winit::VirtualKeyCode::RShift => {
+                            self.input_state.run = down
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(InputEvent::PointerDelta(x, y)) => {
+                    self.input_state.d_lon += Deg(x);
+                    self.input_state.d_lat += Deg(y);
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+    }
+}
+
 impl std::fmt::Debug for PlayerFlyModel {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         write!(
@@ -175,6 +244,67 @@ impl std::fmt::Debug for PlayerFlyModel {
             "pos: [{} {} {}] rot: {:?} {:?}",
             self.pos.x, self.pos.y, self.pos.z, self.lon, self.lat
         )
+    }
+}
+
+pub struct TabInputMultiplexer {
+    pub sink: Sender<InputEvent>,
+    source: Receiver<InputEvent>,
+
+    pub mx_sink1: Option<Sender<InputEvent>>,
+    pub mx_sink2: Option<Sender<InputEvent>>,
+
+    s2_active: bool,
+}
+
+impl TabInputMultiplexer {
+    pub fn new() -> TabInputMultiplexer {
+        let (tx, rx) = std::sync::mpsc::channel();
+        TabInputMultiplexer {
+            sink: tx,
+            source: rx,
+            mx_sink1: None,
+            mx_sink2: None,
+            s2_active: false,
+        }
+    }
+
+    pub fn update(&mut self) {
+        loop {
+            match self.source.try_recv() {
+                Ok(InputEvent::Key(key, state)) => {
+                    if key == winit::VirtualKeyCode::Tab && state == winit::ElementState::Released {
+                        self.dispatch(InputEvent::KeyFocus(false));
+                        self.s2_active = !self.s2_active;
+                        self.dispatch(InputEvent::KeyFocus(true));
+                    } else {
+                        self.dispatch(InputEvent::Key(key, state));
+                    }
+                }
+
+                Ok(event) => self.dispatch(event),
+                Err(_) => break,
+            }
+        }
+    }
+
+    fn dispatch(&mut self, event: InputEvent) {
+        if self.s2_active {
+            if let Some(mx_sink2) = &self.mx_sink2 {
+                let ret = mx_sink2.send(event);
+
+                if ret.is_err() {
+                    self.mx_sink2 = None;
+                }
+            }
+        } else {
+            if let Some(mx_sink1) = &self.mx_sink1 {
+                let ret = mx_sink1.send(event);
+                if ret.is_err() {
+                    self.mx_sink1 = None;
+                }
+            }
+        }
     }
 }
 
@@ -189,7 +319,7 @@ pub struct RenderTest {
     images: Vec<Arc<SwapchainImage<Window>>>,
     pub render_pass: Arc<RenderPassAbstract + Send + Sync>,
 
-    input_sinks: Vec<Sender<(winit::VirtualKeyCode, winit::ElementState)>>,
+    input_sinks: Vec<Sender<InputEvent>>,
 }
 
 impl RenderTest {
@@ -427,7 +557,7 @@ impl RenderTest {
             };
 
             let mut done = false;
-            let mut key_events = Vec::new();
+            let mut events = Vec::new();
 
             // let input_sinks = self.input_sinks.clone();
             // let mut down_keys = HashSet::new();
@@ -445,8 +575,13 @@ impl RenderTest {
                     ..
                 } => {
                     if let Some(op) = old_pos {
-                        input_state.d_lon = Deg((pos.x - op.x) as f32);
-                        input_state.d_lat = Deg((pos.y - op.y) as f32);
+                        // input_state.d_lon = Deg((pos.x - op.x) as f32);
+                        // input_state.d_lat = Deg((pos.y - op.y) as f32);
+
+                        events.push(InputEvent::PointerDelta(
+                            (pos.x - op.x) as f32,
+                            (pos.y - op.y) as f32,
+                        ));
                     }
 
                     old_pos = Some(pos);
@@ -464,24 +599,24 @@ impl RenderTest {
                         },
                     ..
                 } => {
-                    key_events.push((keycode, state));
+                    events.push(InputEvent::Key(keycode, state));
 
-                    let down = state == winit::ElementState::Pressed;
+                    // let down = state == winit::ElementState::Pressed;
 
                     match keycode {
-                        winit::VirtualKeyCode::W => input_state.forward = down,
-                        winit::VirtualKeyCode::S => input_state.backward = down,
-                        winit::VirtualKeyCode::A => input_state.left = down,
-                        winit::VirtualKeyCode::D => input_state.right = down,
-                        winit::VirtualKeyCode::I => input_state.z_neg = down,
-                        winit::VirtualKeyCode::K => input_state.z_pos = down,
-                        winit::VirtualKeyCode::J => input_state.x_neg = down,
-                        winit::VirtualKeyCode::L => input_state.x_pos = down,
-                        winit::VirtualKeyCode::Q => input_state.action1 = down,
-                        winit::VirtualKeyCode::E => input_state.action2 = down,
-                        winit::VirtualKeyCode::LShift | winit::VirtualKeyCode::RShift => {
-                            input_state.run = down
-                        }
+                        // winit::VirtualKeyCode::W => input_state.forward = down,
+                        // winit::VirtualKeyCode::S => input_state.backward = down,
+                        // winit::VirtualKeyCode::A => input_state.left = down,
+                        // winit::VirtualKeyCode::D => input_state.right = down,
+                        // winit::VirtualKeyCode::I => input_state.z_neg = down,
+                        // winit::VirtualKeyCode::K => input_state.z_pos = down,
+                        // winit::VirtualKeyCode::J => input_state.x_neg = down,
+                        // winit::VirtualKeyCode::L => input_state.x_pos = down,
+                        // winit::VirtualKeyCode::Q => input_state.action1 = down,
+                        // winit::VirtualKeyCode::E => input_state.action2 = down,
+                        // winit::VirtualKeyCode::LShift | winit::VirtualKeyCode::RShift => {
+                        //     input_state.run = down
+                        // }
                         winit::VirtualKeyCode::F3 => done = true,
                         _ => {}
                     }
@@ -489,9 +624,9 @@ impl RenderTest {
                 _ => (),
             });
 
-            for (keycode, state) in key_events {
+            for event in events {
                 self.input_sinks
-                    .drain_filter(|sink| sink.send((keycode, state)).is_err());
+                    .drain_filter(|sink| sink.send(event.clone()).is_err());
             }
             if done {
                 return;
@@ -499,7 +634,7 @@ impl RenderTest {
         }
     }
 
-    pub fn add_input_sink(&mut self, sender: Sender<(winit::VirtualKeyCode, winit::ElementState)>) {
+    pub fn add_input_sink(&mut self, sender: Sender<InputEvent>) {
         self.input_sinks.push(sender);
     }
 }
