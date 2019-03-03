@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use glyph_brush::{rusttype, BrushAction, BrushError, GlyphBrush, GlyphBrushBuilder, Section};
 use image::ImageBuffer;
+use itertools::chain;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 #[derive(Copy, Clone)]
@@ -85,6 +86,7 @@ pub struct TextConsole {
 }
 
 fn map_to_visible(keycode: winit::VirtualKeyCode) -> Option<char> {
+    println!("key: {:?}", keycode);
     match keycode {
         winit::VirtualKeyCode::Q => Some('q'),
         winit::VirtualKeyCode::W => Some('w'),
@@ -112,6 +114,7 @@ fn map_to_visible(keycode: winit::VirtualKeyCode) -> Option<char> {
         winit::VirtualKeyCode::B => Some('b'),
         winit::VirtualKeyCode::N => Some('n'),
         winit::VirtualKeyCode::M => Some('m'),
+        winit::VirtualKeyCode::Period => Some('.'),
         winit::VirtualKeyCode::Key1 => Some('1'),
         winit::VirtualKeyCode::Key2 => Some('2'),
         winit::VirtualKeyCode::Key3 => Some('3'),
@@ -259,30 +262,23 @@ impl TextConsole {
         self.receive();
 
         let font_size = (16f64 * render_test.surface.window().get_hidpi_factor()) as f32;
+        let mut il: String = ">".into();
+        // il.append(self.input_line.clone());
 
-        // TODO: I'm sure that this can be solved on the fly with some iterator tricks...
-        let mut text_lines2;
-        if self.key_focus {
-            text_lines2 = self.text_lines.clone();
-            let mut il: String = ">".into();
-            // il.append(self.input_line.clone());
-
-            il += &self.input_line;
-            il += "_";
-            text_lines2.push(il);
+        il += &self.input_line;
+        il += "_";
+        let il2 = [il];
+        let text_lines2: Box<std::iter::Iterator<Item = &String>> = if self.key_focus {
+            Box::new(self.text_lines.iter().chain(il2.iter()))
         } else {
             let num = 5;
-
             if self.text_lines.len() <= num {
-                text_lines2 = self.text_lines.clone();
+                Box::new(self.text_lines.iter())
             } else {
-                text_lines2 = self.text_lines[self.text_lines.len() - num..]
-                    .iter()
-                    .cloned()
-                    .collect();
+                Box::new(self.text_lines[self.text_lines.len() - num..].iter())
             }
-        }
-        for (i, line) in text_lines2.iter().enumerate() {
+        };
+        for (i, line) in text_lines2.enumerate() {
             self.brush.queue(Section {
                 //text: "MMMHello qwertyuiopasdfghjklzxcvbnmQWERTYUIOASDFGHJKLZXCVBNM",
                 text: line,
