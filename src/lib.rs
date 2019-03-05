@@ -9,6 +9,7 @@ extern crate itertools;
 pub mod capnp_bits;
 pub mod crystal;
 pub mod render_bits;
+pub mod script;
 
 #[cfg(feature = "capnp_bits")]
 pub mod asset_capnp {

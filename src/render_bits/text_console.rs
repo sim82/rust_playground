@@ -347,7 +347,7 @@ impl TextConsole {
                         });
                     }
 
-                    if true {
+                    if false {
                         let (width, height) = self.brush.texture_dimensions();
 
                         // let hf = render_test.surface.window().get_hidpi_factor(); // what's with this hidpi crap?
