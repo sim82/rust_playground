@@ -42,7 +42,7 @@ impl RenderDelegate for TestDelgate {
         text_console.framebuffer_changed(render_test);
     }
 
-    fn update(&mut self, render_test: &RenderTest, _input_state: &InputState) -> Box<GpuFuture> {
+    fn update(&mut self, render_test: &RenderTest) -> Box<GpuFuture> {
         if let Some(text_console) = &mut self.text_console {
             text_console.add_line(&format!("time: {:?}\n", Instant::now()));
             text_console.update(render_test)

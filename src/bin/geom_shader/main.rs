@@ -1,9 +1,8 @@
 use rust_playground::render_bits;
 
-use crate::render_bits::InputState;
-use crate::render_bits::PlayerFlyModel;
-use crate::render_bits::RenderDelegate;
-use crate::render_bits::RenderTest;
+use crate::render_bits::{
+    InputState, InputStateEventDispatcher, PlayerFlyModel, RenderDelegate, RenderTest,
+};
 
 use vulkano::buffer::cpu_pool::CpuBufferPoolChunk;
 use vulkano::buffer::{BufferUsage, CpuBufferPool, ImmutableBuffer};
@@ -45,6 +44,8 @@ struct TestDelgate {
     uniform_buffer: Option<CpuBufferPool<vs::ty::Data>>,
     pipeline: Option<Arc<GraphicsPipelineAbstract + Send + Sync>>,
     last_time: std::time::Instant,
+
+    input_state: InputStateEventDispatcher,
 }
 impl TestDelgate {
     fn new() -> TestDelgate {
@@ -63,6 +64,7 @@ impl TestDelgate {
             pipeline: None,
             // colors_cpu: Vec::new(),
             last_time: Instant::now(),
+            input_state: InputStateEventDispatcher::new(),
             // scene: None,
         }
     }
@@ -161,6 +163,8 @@ impl RenderDelegate for TestDelgate {
             BufferUsage::all(),
         ));
 
+        render_test.add_input_sink(self.input_state.sink.clone());
+
         Box::new(vb_fut.join(ib_fut.join(cb_fut)))
     }
     fn shutdown(self) {}
@@ -195,13 +199,16 @@ impl RenderDelegate for TestDelgate {
         ));
     }
 
-    fn update(&mut self, render_test: &RenderTest, input_state: &InputState) -> Box<GpuFuture> {
+    fn update(&mut self, render_test: &RenderTest) -> Box<GpuFuture> {
         // let now = Instant::now();
         // let d_time = now - self.last_time;
         self.last_time = Instant::now();
 
-        self.player_model.apply_delta_lon(input_state.d_lon);
-        self.player_model.apply_delta_lat(input_state.d_lat);
+        self.input_state.update();
+        let input_state = &mut self.input_state.input_state;
+
+        self.player_model.apply_delta_lon(input_state.delta_lon());
+        self.player_model.apply_delta_lat(input_state.delta_lat());
 
         const FORWARD_VEL: f32 = 1.0 / 60.0 * 2.0;
         let boost = if input_state.run { 3.0 } else { 1.0 };
