@@ -18,6 +18,7 @@ extern crate vulkano_win;
 extern crate winit;
 
 use crate::render_bits::text_console::TextConsole;
+use crate::script;
 use custom_error;
 use vulkano::command_buffer::AutoCommandBufferBuilder;
 use vulkano::device::{Device, DeviceExtensions};
@@ -345,10 +346,8 @@ pub struct RenderTest {
     pub vk_state: VulcanoState,
     events_loop: winit::EventsLoop,
 
-    input_sinks: Vec<Sender<InputEvent>>,
-
     pub text_console: TextConsole,
-
+    pub script_env: script::Environment,
     input_multiplexer: TabInputMultiplexer,
 }
 
@@ -477,19 +476,12 @@ impl RenderTest {
         let text_console = TextConsole::new(&vk_state);
 
         RenderTest {
-            // instance: instance,
             vk_state: vk_state,
 
             events_loop: events_loop,
-            // surface: surface,
-            // device: device,
-            // queue: queue,
-            // swapchain: swapchain,
-            // images: images,
-            // render_pass: render_pass,
-            input_sinks: Vec::new(),
             text_console: text_console,
             input_multiplexer: TabInputMultiplexer::new(),
+            script_env: script::Environment::new(),
         }
     }
 
@@ -579,7 +571,7 @@ impl RenderTest {
                 };
 
             self.text_console.update(&self.vk_state);
-            let update_fut = delegate.update(&self.vk_state);
+            let update_fut = delegate.update(&self.vk_state, &mut self.script_env);
             let builder = AutoCommandBufferBuilder::primary_one_time_submit(
                 self.vk_state.device.clone(),
                 self.vk_state.queue.family(),
@@ -708,7 +700,11 @@ pub trait RenderDelegate {
     fn init(&mut self, render_test: &mut RenderTest) -> Box<vulkano::sync::GpuFuture>;
     fn shutdown(self);
     fn framebuffer_changed(&mut self, vk_state: &VulcanoState);
-    fn update(&mut self, vk_state: &VulcanoState) -> Box<GpuFuture>;
+    fn update(
+        &mut self,
+        vk_state: &VulcanoState,
+        script_env: &mut script::Environment,
+    ) -> Box<GpuFuture>;
     fn render_frame(
         &mut self,
         vk_state: &VulcanoState,

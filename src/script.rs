@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{Receiver, Sender};
 
 #[derive(Clone)]
 pub enum BindingAction {
@@ -13,17 +13,13 @@ pub struct Environment {
 
 pub struct BindingDispatcher {
     rx: Receiver<BindingAction>,
-    pub tx: Sender<BindingAction>,
 
     callbacks: HashMap<String, Box<FnMut(String, String, Option<String>)>>,
 }
 
 impl BindingDispatcher {
-    pub fn new() -> Self {
-        let (tx, rx) = channel();
-
+    pub fn new(rx: Receiver<BindingAction>) -> Self {
         BindingDispatcher {
-            tx: tx,
             rx: rx,
             callbacks: HashMap::new(),
         }

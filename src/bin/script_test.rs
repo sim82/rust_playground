@@ -1,11 +1,13 @@
-use rust_playground::script::{BindingAction, BindingDispatcher, Environment};
+use rust_playground::script::{BindingDispatcher, Environment};
+use std::sync::mpsc::channel;
 
 fn main() {
     let mut e = Environment::new();
 
-    let mut b = BindingDispatcher::new();
+    let (tx, rx) = channel();
+    let mut b = BindingDispatcher::new(rx);
 
-    e.subscribe(b.tx.clone());
+    e.subscribe(tx.clone());
 
     b.add_callback("test", |name, value, old| {
         println!("set1 {} {} {:?}", name, value, old)
