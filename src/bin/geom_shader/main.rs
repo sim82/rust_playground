@@ -1,7 +1,7 @@
 use rust_playground::render_bits;
 
 use crate::render_bits::{
-    InputState, InputStateEventDispatcher, PlayerFlyModel, RenderDelegate, RenderTest,
+    InputState, InputStateEventDispatcher, PlayerFlyModel, RenderDelegate, RenderTest, VulcanoState,
 };
 
 use vulkano::buffer::cpu_pool::CpuBufferPoolChunk;
@@ -104,7 +104,7 @@ impl RenderDelegate for TestDelgate {
             .iter()
             .cloned(),
             vulkano::buffer::BufferUsage::vertex_buffer(),
-            render_test.queue.clone(),
+            render_test.vk_state.queue.clone(),
         )
         .unwrap();
         self.vertex_buffer = Some(vb);
@@ -118,7 +118,7 @@ impl RenderDelegate for TestDelgate {
             .iter()
             .cloned(),
             vulkano::buffer::BufferUsage::index_buffer(),
-            render_test.queue.clone(),
+            render_test.vk_state.queue.clone(),
         )
         .unwrap();
         self.index_buffer = Some(ib);
@@ -153,26 +153,26 @@ impl RenderDelegate for TestDelgate {
             .iter()
             .cloned(),
             vulkano::buffer::BufferUsage::vertex_buffer(),
-            render_test.queue.clone(),
+            render_test.vk_state.queue.clone(),
         )
         .unwrap();
         self.colors_buffer_gpu = Some(cb);
 
         self.uniform_buffer = Some(CpuBufferPool::<vs::ty::Data>::new(
-            render_test.device.clone(),
+            render_test.vk_state.device.clone(),
             BufferUsage::all(),
         ));
 
-        render_test.add_input_sink(self.input_state.sink.clone());
+        render_test.set_player_input_sink(self.input_state.sink.clone());
 
         Box::new(vb_fut.join(ib_fut.join(cb_fut)))
     }
     fn shutdown(self) {}
 
-    fn framebuffer_changed(&mut self, render_test: &RenderTest) {
-        let vs = vs::Shader::load(render_test.device.clone()).unwrap();
-        let fs = fs::Shader::load(render_test.device.clone()).unwrap();
-        let dimensions = render_test.dimension();
+    fn framebuffer_changed(&mut self, vk_state: &VulcanoState) {
+        let vs = vs::Shader::load(vk_state.device.clone()).unwrap();
+        let fs = fs::Shader::load(vk_state.device.clone()).unwrap();
+        let dimensions = vk_state.dimension();
         // In the triangle example we use a dynamic viewport, as its a simple example.
         // However in the teapot example, we recreate the pipelines with a hardcoded viewport instead.
         // This allows the driver to optimize things, at the cost of slower window resizes.
@@ -193,13 +193,13 @@ impl RenderDelegate for TestDelgate {
                 .blend_alpha_blending()
                 .fragment_shader(fs.main_entry_point(), ())
                 .depth_stencil_simple_depth()
-                .render_pass(Subpass::from(render_test.render_pass.clone(), 0).unwrap())
-                .build(render_test.device.clone())
+                .render_pass(Subpass::from(vk_state.render_pass.clone(), 0).unwrap())
+                .build(vk_state.device.clone())
                 .unwrap(),
         ));
     }
 
-    fn update(&mut self, render_test: &RenderTest) -> Box<GpuFuture> {
+    fn update(&mut self, vk_state: &VulcanoState) -> Box<GpuFuture> {
         // let now = Instant::now();
         // let d_time = now - self.last_time;
         self.last_time = Instant::now();
@@ -227,21 +227,14 @@ impl RenderDelegate for TestDelgate {
 
         // println!("{:?}", self.player_model);
 
-        Box::new(vulkano::sync::now(render_test.device.clone()))
+        Box::new(vulkano::sync::now(vk_state.device.clone()))
     }
 
-    fn frame(
+    fn render_frame(
         &mut self,
-        render_test: &RenderTest,
-        // input_state: &InputState,
-        framebuffer: Arc<FramebufferAbstract + Send + Sync>,
-    ) -> Option<
-        Box<
-            vulkano::command_buffer::CommandBuffer<
-                PoolAlloc = vulkano::command_buffer::pool::standard::StandardCommandPoolAlloc,
-            >,
-        >,
-    > {
+        vk_state: &VulcanoState,
+        builder: AutoCommandBufferBuilder,
+    ) -> Result<AutoCommandBufferBuilder, render_bits::Error> {
         match (
             &self.vertex_buffer,
             // &self.colors_buffer,
@@ -259,7 +252,7 @@ impl RenderDelegate for TestDelgate {
                 Some(pipeline),
             ) => {
                 let uniform_buffer_subbuffer = {
-                    let dimensions = render_test.dimension();
+                    let dimensions = vk_state.dimension();
                     let aspect_ratio = dimensions[0] as f32 / dimensions[1] as f32;
                     let unity = Matrix4::from_scale(1f32);
                     let uniform_data = vs::ty::Data {
@@ -290,47 +283,19 @@ impl RenderDelegate for TestDelgate {
                         .unwrap(),
                 );
 
-                let command_buffer = AutoCommandBufferBuilder::primary_one_time_submit(
-                    render_test.device.clone(),
-                    render_test.queue.family(),
-                )
-                .unwrap()
-                // .update_buffer(colors_buffer_gpu.clone(), self.colors_cpu[..]).unwrap()
-                .begin_render_pass(
-                    framebuffer.clone(),
-                    false,
-                    vec![[0.0, 0.0, 1.0, 1.0].into(), 1f32.into()],
-                )
-                .unwrap()
-                .draw_indexed(
+                Ok(builder.draw_indexed(
                     pipeline.clone(),
                     &DynamicState::none(),
                     vec![vertex_buffer.clone(), colors_buffer_gpu.clone()],
                     index_buffer.clone(),
                     set.clone(),
                     (),
-                )
-                .unwrap()
-                .end_render_pass()
-                .unwrap()
-                .build()
-                .unwrap();
-                Some(Box::new(command_buffer))
+                )?)
             }
 
             _ => {
                 println!("not initialized");
-                //None
-
-                Some(Box::new(
-                    AutoCommandBufferBuilder::primary_one_time_submit(
-                        render_test.device.clone(),
-                        render_test.queue.family(),
-                    )
-                    .unwrap()
-                    .build()
-                    .unwrap(),
-                ))
+                Ok(builder)
             }
         }
     }

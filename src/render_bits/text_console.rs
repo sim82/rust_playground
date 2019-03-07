@@ -1,5 +1,5 @@
 use crate::render_bits;
-use crate::render_bits::{InputEvent, RenderTest, TexCoord, Vertex};
+use crate::render_bits::{InputEvent, RenderTest, TexCoord, Vertex, VulcanoState};
 use vulkano::buffer::{cpu_pool::CpuBufferPoolChunk, BufferUsage, CpuBufferPool};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
@@ -83,6 +83,9 @@ pub struct TextConsole {
     input_sink: Sender<render_bits::InputEvent>,
 
     key_focus: bool,
+
+    dimensions: [u32; 2],
+    hidpi_factor: f64,
 }
 
 fn map_to_visible(keycode: winit::VirtualKeyCode) -> Option<char> {
@@ -132,17 +135,17 @@ fn map_to_visible(keycode: winit::VirtualKeyCode) -> Option<char> {
 }
 
 impl TextConsole {
-    pub fn new(render_test: &mut RenderTest) -> Self {
+    pub fn new(vk_state: &VulcanoState) -> Self {
         let (tx, rx) = channel();
         let (input_tx, input_rx) = channel();
 
         // render_test.add_input_sink(input_tx);
         TextConsole {
-            vb_pool: CpuBufferPool::<Vertex>::new(render_test.device.clone(), BufferUsage::all()),
-            tb_pool: CpuBufferPool::<TexCoord>::new(render_test.device.clone(), BufferUsage::all()),
-            ib_pool: CpuBufferPool::<u32>::new(render_test.device.clone(), BufferUsage::all()),
+            vb_pool: CpuBufferPool::<Vertex>::new(vk_state.device.clone(), BufferUsage::all()),
+            tb_pool: CpuBufferPool::<TexCoord>::new(vk_state.device.clone(), BufferUsage::all()),
+            ib_pool: CpuBufferPool::<u32>::new(vk_state.device.clone(), BufferUsage::all()),
             ub_pool: CpuBufferPool::<vs::ty::Data>::new(
-                render_test.device.clone(),
+                vk_state.device.clone(),
                 BufferUsage::all(),
             ),
             buffers: None,
@@ -153,7 +156,7 @@ impl TextConsole {
             text_lines: Vec::new(),
             // glyph_image: gi,
             sampler: Sampler::new(
-                render_test.device.clone(),
+                vk_state.device.clone(),
                 Filter::Linear,
                 Filter::Linear,
                 MipmapMode::Nearest,
@@ -173,13 +176,16 @@ impl TextConsole {
             input_source: input_rx,
             input_sink: input_tx,
             key_focus: false,
+            dimensions: [0u32; 2],
+            hidpi_factor: 0f64,
         }
     }
 
-    pub fn framebuffer_changed(&mut self, render_test: &RenderTest) {
-        let vs = vs::Shader::load(render_test.device.clone()).unwrap();
-        let fs = fs::Shader::load(render_test.device.clone()).unwrap();
-        let dimensions = render_test.dimension();
+    pub fn framebuffer_changed(&mut self, vk_state: &VulcanoState) {
+        let vs = vs::Shader::load(vk_state.device.clone()).unwrap();
+        let fs = fs::Shader::load(vk_state.device.clone()).unwrap();
+        self.hidpi_factor = vk_state.surface.window().get_hidpi_factor();
+        self.dimensions = vk_state.dimension();
         // In the triangle example we use a dynamic viewport, as its a simple example.
         // However in the teapot example, we recreate the pipelines with a hardcoded viewport instead.
         // This allows the driver to optimize things, at the cost of slower window resizes.
@@ -194,14 +200,14 @@ impl TextConsole {
                 .viewports_dynamic_scissors_irrelevant(1)
                 .viewports(iter::once(Viewport {
                     origin: [0.0, 0.0],
-                    dimensions: [dimensions[0] as f32, dimensions[1] as f32],
+                    dimensions: [self.dimensions[0] as f32, self.dimensions[1] as f32],
                     depth_range: 0.0..1.0,
                 }))
                 .blend_alpha_blending()
                 .fragment_shader(fs.main_entry_point(), ())
                 .depth_stencil_simple_depth()
-                .render_pass(Subpass::from(render_test.render_pass.clone(), 0).unwrap())
-                .build(render_test.device.clone())
+                .render_pass(Subpass::from(vk_state.render_pass.clone(), 0).unwrap())
+                .build(vk_state.device.clone())
                 .unwrap(),
         ))
     }
@@ -258,10 +264,10 @@ impl TextConsole {
         }
     }
 
-    pub fn update(&mut self, render_test: &RenderTest) -> Box<vulkano::sync::GpuFuture> {
+    pub fn update(&mut self, vk_state: &VulcanoState) -> Box<vulkano::sync::GpuFuture> {
         self.receive();
 
-        let font_size = (16f64 * render_test.surface.window().get_hidpi_factor()) as f32;
+        let font_size = (16f64 * self.hidpi_factor) as f32;
         let mut il: String = ">".into();
         // il.append(self.input_line.clone());
 
@@ -290,7 +296,6 @@ impl TextConsole {
             // println!("queue: {}", line);
         }
         // println!("done");
-        let dimensions = render_test.dimension();
         let mut verts = Vec::new();
         let mut tex = Vec::new();
         let mut indices = Vec::new();
@@ -301,7 +306,7 @@ impl TextConsole {
             let glyph_data = &mut self.glyph_data;
 
             match self.brush.process_queued(
-                (dimensions[0], dimensions[1]),
+                (self.dimensions[0], self.dimensions[1]),
                 |rect, tex_data| {
                     (&mut glyph_data[..], size).blit(rect, tex_data);
                     glyph_updated = true;
@@ -352,8 +357,8 @@ impl TextConsole {
 
                         // let hf = render_test.surface.window().get_hidpi_factor(); // what's with this hidpi crap?
                         let hf = 1f64;
-                        let screen_width = (dimensions[0] as f64 * hf) as i32;
-                        let screen_height = (dimensions[1] as f64 * hf) as i32;
+                        let screen_width = (self.dimensions[0] as f64 * hf) as i32;
+                        let screen_height = (self.dimensions[1] as f64 * hf) as i32;
 
                         let vmin = rusttype::Point::<i32> {
                             x: screen_width - width as i32,
@@ -429,7 +434,7 @@ impl TextConsole {
                     height: height,
                 },
                 vulkano::format::Format::R8Srgb,
-                render_test.queue.clone(),
+                vk_state.queue.clone(),
             )
             .unwrap();
             if false {
@@ -444,21 +449,20 @@ impl TextConsole {
             self.glyph_image = Some(gi);
             Box::new(gi_fut)
         } else {
-            Box::new(vulkano::sync::now(render_test.device.clone()))
+            Box::new(vulkano::sync::now(vk_state.device.clone()))
         }
     }
 
     pub fn render<PoolBuilder>(
         &mut self,
         builder: AutoCommandBufferBuilder<PoolBuilder>,
-        framebuffer: Arc<FramebufferAbstract + Send + Sync>,
-    ) -> AutoCommandBufferBuilder<PoolBuilder> {
+    ) -> Result<AutoCommandBufferBuilder<PoolBuilder>, render_bits::Error> {
         if let (Some(buffers), Some(glyph_image), Some(pipeline)) =
             (&self.buffers, &self.glyph_image, &self.pipeline)
         {
             let uniform_buffer_subbuffer = {
-                let width = framebuffer.width();
-                let height = framebuffer.height();
+                let width = self.dimensions[0];
+                let height = self.dimensions[1];
 
                 let unity = Matrix4::from_scale(1f32);
                 let uniform_data = vs::ty::Data {
@@ -480,18 +484,16 @@ impl TextConsole {
                     .unwrap(),
             );
 
-            builder
-                .draw_indexed(
-                    pipeline.clone(),
-                    &DynamicState::none(),
-                    vec![buffers.vb.clone(), buffers.tb.clone()],
-                    buffers.ib.clone(),
-                    set.clone(),
-                    (),
-                )
-                .unwrap()
+            Ok(builder.draw_indexed(
+                pipeline.clone(),
+                &DynamicState::none(),
+                vec![buffers.vb.clone(), buffers.tb.clone()],
+                buffers.ib.clone(),
+                set.clone(),
+                (),
+            )?)
         } else {
-            builder
+            Ok(builder)
         }
     }
 

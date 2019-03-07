@@ -17,6 +17,9 @@ extern crate vulkano_shaders;
 extern crate vulkano_win;
 extern crate winit;
 
+use crate::render_bits::text_console::TextConsole;
+use custom_error;
+use vulkano::command_buffer::AutoCommandBufferBuilder;
 use vulkano::device::{Device, DeviceExtensions};
 use vulkano::format::Format;
 use vulkano::framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract};
@@ -25,24 +28,32 @@ use vulkano::image::SwapchainImage;
 use vulkano::impl_vertex;
 use vulkano::instance::Instance;
 use vulkano::instance::PhysicalDevice;
-use vulkano::pipeline::GraphicsPipelineAbstract;
+
 use vulkano::swapchain;
 use vulkano::swapchain::{AcquireError, PresentMode, SurfaceTransform, Swapchain};
 use vulkano::sync;
 use vulkano::sync::GpuFuture;
 use vulkano_win::VkSurfaceBuild;
-
 use winit::Window;
 
 use cgmath::prelude::*;
 use cgmath::{Deg, Matrix4, Point3, Vector4};
 
-use std::collections::HashSet;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 
 pub mod math;
 pub mod text_console;
+
+custom_error::custom_error! { pub Error
+
+    BeginRenderPassError{ source : vulkano::command_buffer::BeginRenderPassError } = "begin render pass",
+    DrawIndexedError{ source : vulkano::command_buffer::DrawIndexedError } = "draw indexed",
+    BuildError{ source : vulkano::command_buffer::BuildError} = "build error",
+
+    NotInitialized = "Not initialized",
+    NotImplemented = "Not implemented",
+}
 
 #[derive(Copy, Clone)]
 pub struct Vertex {
@@ -308,9 +319,7 @@ impl TabInputMultiplexer {
     }
 }
 
-pub struct RenderTest {
-    // instance: Arc<Instance>,
-    events_loop: winit::EventsLoop,
+pub struct VulcanoState {
     pub surface: Arc<vulkano::swapchain::Surface<Window>>,
     pub device: Arc<Device>,
     pub queue: Arc<vulkano::device::Queue>,
@@ -318,8 +327,29 @@ pub struct RenderTest {
     swapchain: Arc<Swapchain<Window>>,
     images: Vec<Arc<SwapchainImage<Window>>>,
     pub render_pass: Arc<RenderPassAbstract + Send + Sync>,
+}
+
+impl VulcanoState {
+    pub fn dimension(&self) -> [u32; 2] {
+        let window = self.surface.window();
+        if let Some(dimensions) = window.get_inner_size() {
+            let dimensions: (u32, u32) = dimensions.to_physical(window.get_hidpi_factor()).into();
+            [dimensions.0, dimensions.1]
+        } else {
+            panic!("panic")
+        }
+    }
+}
+
+pub struct RenderTest {
+    pub vk_state: VulcanoState,
+    events_loop: winit::EventsLoop,
 
     input_sinks: Vec<Sender<InputEvent>>,
+
+    pub text_console: TextConsole,
+
+    input_multiplexer: TabInputMultiplexer,
 }
 
 impl RenderTest {
@@ -435,56 +465,74 @@ impl RenderTest {
             .unwrap(),
         );
 
-        RenderTest {
-            // instance: instance,
-            events_loop: events_loop,
-            surface: surface,
+        let vk_state = VulcanoState {
             device: device,
+            surface: surface,
             queue: queue,
             swapchain: swapchain,
             images: images,
             render_pass: render_pass,
+        };
+
+        let text_console = TextConsole::new(&vk_state);
+
+        RenderTest {
+            // instance: instance,
+            vk_state: vk_state,
+
+            events_loop: events_loop,
+            // surface: surface,
+            // device: device,
+            // queue: queue,
+            // swapchain: swapchain,
+            // images: images,
+            // render_pass: render_pass,
             input_sinks: Vec::new(),
+            text_console: text_console,
+            input_multiplexer: TabInputMultiplexer::new(),
         }
     }
 
     fn window(&self) -> &Window {
-        self.surface.window()
+        self.vk_state.surface.window()
     }
-    pub fn dimension(&self) -> [u32; 2] {
-        let window = self.window();
-        if let Some(dimensions) = window.get_inner_size() {
-            let dimensions: (u32, u32) = dimensions.to_physical(window.get_hidpi_factor()).into();
-            [dimensions.0, dimensions.1]
-        } else {
-            panic!("panic")
-        }
-    }
+    // pub fn dimension(&self) -> [u32; 2] {
+    //     let window = self.window();
+    //     if let Some(dimensions) = window.get_inner_size() {
+    //         let dimensions: (u32, u32) = dimensions.to_physical(window.get_hidpi_factor()).into();
+    //         [dimensions.0, dimensions.1]
+    //     } else {
+    //         panic!("panic")
+    //     }
+    // }
     fn recreate_swapchain(&mut self) -> Vec<Arc<FramebufferAbstract + Send + Sync>> {
-        let dimensions = self.dimension();
-        let (new_swapchain, new_images) = match self.swapchain.recreate_with_dimension(dimensions) {
-            Ok(r) => r,
-            // Err(SwapchainCreationError::UnsupportedDimensions) => panic!("{:?}", err),
-            Err(err) => panic!("{:?}", err),
-        };
-        self.swapchain = new_swapchain;
-        self.images = new_images;
+        let dimensions = self.vk_state.dimension();
+        let (new_swapchain, new_images) =
+            match self.vk_state.swapchain.recreate_with_dimension(dimensions) {
+                Ok(r) => r,
+                // Err(SwapchainCreationError::UnsupportedDimensions) => panic!("{:?}", err),
+                Err(err) => panic!("{:?}", err),
+            };
+        self.vk_state.swapchain = new_swapchain;
+        self.vk_state.images = new_images;
 
         self.window_size_dependent_setup()
     }
 
     fn window_size_dependent_setup(&self) -> Vec<Arc<FramebufferAbstract + Send + Sync>> {
-        let dimensions = self.images[0].dimensions();
+        let dimensions = self.vk_state.images[0].dimensions();
 
         let depth_buffer =
-            AttachmentImage::transient(self.device.clone(), dimensions, Format::D32Sfloat).unwrap();
+            AttachmentImage::transient(self.vk_state.device.clone(), dimensions, Format::D32Sfloat)
+                .unwrap();
 
         let framebuffers = self
+            .vk_state
             .images
             .iter()
             .map(|image| {
                 Arc::new(
-                    Framebuffer::start(self.render_pass.clone())
+                    Framebuffer::start(self.vk_state.render_pass.clone())
                         .add(image.clone())
                         .unwrap()
                         .add(depth_buffer.clone())
@@ -500,9 +548,11 @@ impl RenderTest {
 
     fn main_loop(&mut self, delegate: &mut dyn RenderDelegate) {
         let framebuffers = self.window_size_dependent_setup();
-        delegate.framebuffer_changed(self);
+        delegate.framebuffer_changed(&self.vk_state);
         // let mut pipeline = delegate.create_pipeline(&self);
         let mut recreate_swapchain = false;
+
+        self.input_multiplexer.mx_sink2 = Some(self.text_console.get_input_sink().clone());
 
         let mut previous_frame = delegate.init(self);
         let mut old_pos = None as Option<winit::dpi::LogicalPosition>;
@@ -512,12 +562,14 @@ impl RenderTest {
 
             if recreate_swapchain {
                 // framebuffers = self.recreate_swapchain();
-                delegate.framebuffer_changed(&self);
+                delegate.framebuffer_changed(&self.vk_state);
+                self.text_console.framebuffer_changed(&self.vk_state);
+
                 // pipeline = delegate.create_pipeline(&self);
                 recreate_swapchain = false;
             }
             let (image_num, acquire_future) =
-                match swapchain::acquire_next_image(self.swapchain.clone(), None) {
+                match swapchain::acquire_next_image(self.vk_state.swapchain.clone(), None) {
                     Ok(r) => r,
                     Err(AcquireError::OutOfDate) => {
                         recreate_swapchain = true;
@@ -526,16 +578,43 @@ impl RenderTest {
                     Err(err) => panic!("{:?}", err),
                 };
 
-            let update_fut = delegate.update(&self);
-            let command_buffer = delegate.frame(&self, framebuffers[image_num].clone());
+            self.text_console.update(&self.vk_state);
+            let update_fut = delegate.update(&self.vk_state);
+            let builder = AutoCommandBufferBuilder::primary_one_time_submit(
+                self.vk_state.device.clone(),
+                self.vk_state.queue.family(),
+            )
+            .unwrap()
+            // .update_buffer(colors_buffer_gpu.clone(), self.colors_cpu[..]).unwrap()
+            .begin_render_pass(
+                framebuffers[image_num].clone(),
+                false,
+                vec![[0.0, 0.0, 1.0, 1.0].into(), 1f32.into()],
+            )
+            .unwrap();
 
-            if let Some(command_buffer) = command_buffer {
+            let builder = match delegate.render_frame(&self.vk_state, builder) {
+                Ok(builder) => builder,
+                Err(error) => panic!("error: {}", error),
+            };
+
+            let builder = match self.text_console.render(builder) {
+                Ok(builder) => builder,
+                Err(error) => panic!("error: {}", error),
+            };
+            let command_buffer = builder.end_render_pass().unwrap().build();
+
+            if let Ok(command_buffer) = command_buffer {
                 let future = previous_frame
                     .join(update_fut)
                     .join(acquire_future)
-                    .then_execute(self.queue.clone(), command_buffer)
+                    .then_execute(self.vk_state.queue.clone(), command_buffer)
                     .unwrap()
-                    .then_swapchain_present(self.queue.clone(), self.swapchain.clone(), image_num)
+                    .then_swapchain_present(
+                        self.vk_state.queue.clone(),
+                        self.vk_state.swapchain.clone(),
+                        image_num,
+                    )
                     .then_signal_fence_and_flush();
 
                 match future {
@@ -544,11 +623,13 @@ impl RenderTest {
                     }
                     Err(sync::FlushError::OutOfDate) => {
                         recreate_swapchain = true;
-                        previous_frame = Box::new(sync::now(self.device.clone())) as Box<_>;
+                        previous_frame =
+                            Box::new(sync::now(self.vk_state.device.clone())) as Box<_>;
                     }
                     Err(e) => {
                         println!("{:?}", e);
-                        previous_frame = Box::new(sync::now(self.device.clone())) as Box<_>;
+                        previous_frame =
+                            Box::new(sync::now(self.vk_state.device.clone())) as Box<_>;
                     }
                 }
             };
@@ -606,42 +687,33 @@ impl RenderTest {
             });
 
             for event in events {
-                self.input_sinks
-                    .drain_filter(|sink| sink.send(event.clone()).is_err());
+                // self.input_sinks
+                //     .drain_filter(|sink| sink.send(event.clone()).is_err());
+                self.input_multiplexer.sink.send(event).unwrap();
             }
+            self.input_multiplexer.update();
+
             if done {
                 return;
             }
         }
     }
 
-    pub fn add_input_sink(&mut self, sender: Sender<InputEvent>) {
-        self.input_sinks.push(sender);
+    pub fn set_player_input_sink(&mut self, sender: Sender<InputEvent>) {
+        self.input_multiplexer.mx_sink1 = Some(sender);
     }
 }
 
 pub trait RenderDelegate {
     fn init(&mut self, render_test: &mut RenderTest) -> Box<vulkano::sync::GpuFuture>;
     fn shutdown(self);
-    fn framebuffer_changed(&mut self, render_test: &RenderTest);
-    // fn create_pipeline(
-    //     &self,
-    //     render_test: &RenderTest,
-    // ) -> Arc<GraphicsPipelineAbstract + Send + Sync>;
-
-    fn update(&mut self, render_test: &RenderTest) -> Box<GpuFuture>;
-
-    fn frame(
+    fn framebuffer_changed(&mut self, vk_state: &VulcanoState);
+    fn update(&mut self, vk_state: &VulcanoState) -> Box<GpuFuture>;
+    fn render_frame(
         &mut self,
-        render_test: &RenderTest,
-        framebuffer: Arc<vulkano::framebuffer::FramebufferAbstract + Send + Sync>,
-    ) -> Option<
-        Box<
-            vulkano::command_buffer::CommandBuffer<
-                PoolAlloc = vulkano::command_buffer::pool::standard::StandardCommandPoolAlloc,
-            >,
-        >,
-    >;
+        vk_state: &VulcanoState,
+        builder: AutoCommandBufferBuilder,
+    ) -> Result<AutoCommandBufferBuilder, Error>;
 }
 
 pub fn render_test(delegate: &mut RenderDelegate) {

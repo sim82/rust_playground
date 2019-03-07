@@ -4,7 +4,7 @@ use crate::render_bits::text_console::TextConsole;
 use crate::render_bits::PlayerFlyModel;
 use crate::render_bits::RenderDelegate;
 use crate::render_bits::RenderTest;
-use crate::render_bits::{InputState, InputStateEventDispatcher, TabInputMultiplexer};
+use crate::render_bits::{InputStateEventDispatcher, VulcanoState};
 
 use crystal::rad::Scene;
 use crystal::{Bitmap, PlanesSep};
@@ -18,7 +18,7 @@ use vulkano::buffer::cpu_pool::CpuBufferPoolChunk;
 use vulkano::buffer::{BufferUsage, CpuBufferPool, ImmutableBuffer};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
-use vulkano::framebuffer::{FramebufferAbstract, Subpass};
+use vulkano::framebuffer::Subpass;
 use vulkano::pipeline::vertex::TwoBuffersDefinition;
 use vulkano::pipeline::viewport::Viewport;
 use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
@@ -263,12 +263,10 @@ struct CrystalRenderDelgate {
     rad_worker: Option<RadWorker>,
     tx_pos: Option<Sender<GameEvent>>,
 
-    text_console: Option<TextConsole>,
+    // text_console: Option<TextConsole>,
     pipeline: Option<Arc<GraphicsPipelineAbstract + Send + Sync>>,
 
     input_state: InputStateEventDispatcher,
-
-    input_multiplexer: TabInputMultiplexer,
 }
 
 impl CrystalRenderDelgate {
@@ -281,30 +279,25 @@ impl CrystalRenderDelgate {
             ),
             vertex_buffer: None,
             colors_buffer_gpu: None,
-            // colors_buffer_pool: None,
-            // colors_buffer: None,
             index_buffer: None,
             uniform_buffer: None,
-            // colors_cpu: Vec::new(),
             last_time: Instant::now(),
-            // scene: None,
             light_pos: Point3::new(120.0, 48.0, 120.0),
 
             rad_worker: None,
             tx_pos: None,
 
-            text_console: None,
+            // text_console: None,
             pipeline: None,
 
             input_state: InputStateEventDispatcher::new(),
-
-            input_multiplexer: TabInputMultiplexer::new(),
         }
     }
 }
 
 impl RenderDelegate for CrystalRenderDelgate {
     fn init(&mut self, render_test: &mut RenderTest) -> Box<vulkano::sync::GpuFuture> {
+        let vk_state = &render_test.vk_state;
         let scene;
         {
             let bm = crystal::read_map("hidden_ramp.txt").expect("could not read file");
@@ -355,7 +348,7 @@ impl RenderDelegate for CrystalRenderDelgate {
             let (vertex_buffer, vb_future) = ImmutableBuffer::from_iter(
                 vertices.iter().cloned(),
                 BufferUsage::all(),
-                render_test.queue.clone(),
+                vk_state.queue.clone(),
             )
             .unwrap();
 
@@ -372,16 +365,16 @@ impl RenderDelegate for CrystalRenderDelgate {
 
             let indices = indices.iter().cloned();
             let (index_buffer, ib_future) =
-                ImmutableBuffer::from_iter(indices, BufferUsage::all(), render_test.queue.clone())
+                ImmutableBuffer::from_iter(indices, BufferUsage::all(), vk_state.queue.clone())
                     .unwrap();
 
             let uniform_buffer =
-                CpuBufferPool::<vs::ty::Data>::new(render_test.device.clone(), BufferUsage::all());
+                CpuBufferPool::<vs::ty::Data>::new(vk_state.device.clone(), BufferUsage::all());
             self.vertex_buffer = Some(vertex_buffer);
             self.index_buffer = Some(index_buffer);
             self.uniform_buffer = Some(uniform_buffer);
 
-            colors_buffer_pool = CpuBufferPool::new(render_test.device.clone(), BufferUsage::all());
+            colors_buffer_pool = CpuBufferPool::new(vk_state.device.clone(), BufferUsage::all());
             future = Box::new(vb_future.join(ib_future))
         }
 
@@ -392,23 +385,17 @@ impl RenderDelegate for CrystalRenderDelgate {
         // println!("send");
         self.tx_pos = Some(tx);
 
-        self.text_console = Some(TextConsole::new(render_test));
+        // self.text_console = Some(TextConsole::new(render_test));
 
         self.rad_worker = Some(RadWorker::start(
             scene,
             colors_buffer_pool,
             colors_cpu,
             rx,
-            self.text_console.as_ref().unwrap().get_sender(),
+            render_test.text_console.get_sender(),
         ));
 
-        render_test.add_input_sink(self.input_multiplexer.sink.clone());
-
-        self.input_multiplexer.mx_sink1 = Some(self.input_state.sink.clone());
-
-        self.input_multiplexer.mx_sink2 =
-            Some(self.text_console.as_ref().unwrap().get_input_sink().clone());
-
+        render_test.set_player_input_sink(self.input_state.sink.clone());
         future
     }
     fn shutdown(self) {
@@ -424,10 +411,10 @@ impl RenderDelegate for CrystalRenderDelgate {
             println!(" done");
         }
     }
-    fn framebuffer_changed(&mut self, render_test: &RenderTest) {
-        let vs = vs::Shader::load(render_test.device.clone()).unwrap();
-        let fs = fs::Shader::load(render_test.device.clone()).unwrap();
-        let dimensions = render_test.dimension();
+    fn framebuffer_changed(&mut self, vk_state: &VulcanoState) {
+        let vs = vs::Shader::load(vk_state.device.clone()).unwrap();
+        let fs = fs::Shader::load(vk_state.device.clone()).unwrap();
+        let dimensions = vk_state.dimension();
         // In the triangle example we use a dynamic viewport, as its a simple example.
         // However in the teapot example, we recreate the pipelines with a hardcoded viewport instead.
         // This allows the driver to optimize things, at the cost of slower window resizes.
@@ -448,19 +435,13 @@ impl RenderDelegate for CrystalRenderDelgate {
                 .blend_alpha_blending()
                 .fragment_shader(fs.main_entry_point(), ())
                 .depth_stencil_simple_depth()
-                .render_pass(Subpass::from(render_test.render_pass.clone(), 0).unwrap())
-                .build(render_test.device.clone())
+                .render_pass(Subpass::from(vk_state.render_pass.clone(), 0).unwrap())
+                .build(vk_state.device.clone())
                 .unwrap(),
         ));
-        if let Some(text_console) = &mut self.text_console {
-            text_console.framebuffer_changed(render_test);
-        }
     }
-    fn update(&mut self, render_test: &RenderTest) -> Box<GpuFuture> {
-        // let now = Instant::now();
-        // let d_time = now - self.last_time;
+    fn update(&mut self, vk_state: &VulcanoState) -> Box<GpuFuture> {
         self.last_time = Instant::now();
-        self.input_multiplexer.update();
         self.input_state.update();
         // println!("time: {:?}", d_time);
 
@@ -529,27 +510,14 @@ impl RenderDelegate for CrystalRenderDelgate {
             self.player_model.apply_move_right(FORWARD_VEL * boost);
         }
 
-        // println!("{:?}", self.player_model);
-
-        if let Some(text_console) = &mut self.text_console {
-            // text_console.add_line(&format!("{:?}", Instant::now()));
-            text_console.update(render_test)
-        } else {
-            Box::new(vulkano::sync::now(render_test.device.clone()))
-        }
+        Box::new(vulkano::sync::now(vk_state.device.clone()))
     }
-    fn frame(
+
+    fn render_frame(
         &mut self,
-        render_test: &RenderTest,
-        // input_state: &InputState,
-        framebuffer: Arc<FramebufferAbstract + Send + Sync>,
-    ) -> Option<
-        Box<
-            vulkano::command_buffer::CommandBuffer<
-                PoolAlloc = vulkano::command_buffer::pool::standard::StandardCommandPoolAlloc,
-            >,
-        >,
-    > {
+        vk_state: &VulcanoState,
+        builder: AutoCommandBufferBuilder,
+    ) -> Result<AutoCommandBufferBuilder, render_bits::Error> {
         match (
             &self.vertex_buffer,
             // &self.colors_buffer,
@@ -566,8 +534,9 @@ impl RenderDelegate for CrystalRenderDelgate {
                 Some(uniform_buffer),
                 Some(pipeline),
             ) => {
+                let dimensions = vk_state.dimension();
+
                 let uniform_buffer_subbuffer = {
-                    let dimensions = render_test.dimension();
                     let aspect_ratio = dimensions[0] as f32 / dimensions[1] as f32;
 
                     let uniform_data = vs::ty::Data {
@@ -579,9 +548,6 @@ impl RenderDelegate for CrystalRenderDelgate {
                             0.01,
                             100.0,
                         )
-                        // proj: render_bits::math::orthograpic_projection(
-                        //     -10f32, 10f32, -10f32, 10f32, 0.01f32, 100.0f32,
-                        // )
                         .into(),
                     };
 
@@ -596,51 +562,17 @@ impl RenderDelegate for CrystalRenderDelgate {
                         .unwrap(),
                 );
 
-                let mut builder = AutoCommandBufferBuilder::primary_one_time_submit(
-                    render_test.device.clone(),
-                    render_test.queue.family(),
-                )
-                .unwrap()
-                // .update_buffer(colors_buffer_gpu.clone(), self.colors_cpu[..]).unwrap()
-                .begin_render_pass(
-                    framebuffer.clone(),
-                    false,
-                    vec![[0.0, 0.0, 1.0, 1.0].into(), 1f32.into()],
-                )
-                .unwrap()
-                .draw_indexed(
+                Ok(builder.draw_indexed(
                     pipeline.clone(),
                     &DynamicState::none(),
                     vec![vertex_buffer.clone(), colors_buffer_gpu.clone()],
                     index_buffer.clone(),
                     set.clone(),
                     (),
-                )
-                .unwrap();
-
-                if let Some(text_console) = &mut self.text_console {
-                    builder = text_console.render(builder, framebuffer);
-                }
-
-                let builder = builder.end_render_pass().unwrap();
-
-                Some(Box::new(builder.build().unwrap()))
+                )?)
             }
 
-            _ => {
-                println!("not initialized");
-                //None
-
-                Some(Box::new(
-                    AutoCommandBufferBuilder::primary_one_time_submit(
-                        render_test.device.clone(),
-                        render_test.queue.family(),
-                    )
-                    .unwrap()
-                    .build()
-                    .unwrap(),
-                ))
-            }
+            _ => Ok(builder),
         }
     }
 }
