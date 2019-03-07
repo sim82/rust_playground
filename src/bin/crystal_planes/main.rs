@@ -96,100 +96,101 @@ impl RadWorker {
         // let scene = Arc::new(scene);
         // let scene_thread = scene.clone();
         let join_handle = spawn(move || {
-            let scene = Rc::new(RefCell::new(scene));
-            let scene1 = scene.clone();
-
             let mut binding_dispatcher = script::BindingDispatcher::new(brx);
 
             let mut light_pos = crystal::Point3::new(120f32, 32f32, 80f32);
             let mut light_update = false;
             let mut last_stat = Instant::now();
             let mut do_stop = false;
-            binding_dispatcher.add_callback("light_mode", move |_, new_mode, _old_mode| {
-                let mut scene = scene1.borrow_mut();
-                let scene = &mut *scene;
-                match new_mode.parse::<i32>() {
-                    Ok(1) => {
-                        let mut rng = thread_rng();
 
-                        let color1 = hsv_to_rgb(rng.gen_range(0.0, 180.0), 1.0, 1.0);
-                        let color2 = hsv_to_rgb(rng.gen_range(180.0, 360.0), 1.0, 1.0);
-                        let color3 = hsv_to_rgb(rng.gen_range(0.0, 180.0), 1.0, 1.0);
-                        let color4 = hsv_to_rgb(rng.gen_range(180.0, 360.0), 1.0, 1.0);
-
-                        for (i, plane) in scene.planes.planes_iter().enumerate() {
-                            scene.diffuse[i] = Vector3::new(1f32, 1f32, 1f32);
-
-                            let up = plane.cell + crystal::Dir::ZxPos.get_normal::<i32>();
-                            let not_edge = (&scene.bitmap as &Bitmap).get(up);
-
-                            scene.emit[i] = if not_edge {
-                                Vector3::zero()
-                            } else {
-                                match plane.dir {
-                                    crystal::Dir::YzPos => color1,
-                                    crystal::Dir::YzNeg => color2,
-                                    crystal::Dir::XyPos => color3,
-                                    crystal::Dir::XyNeg => color4,
-                                    // crystal::Dir::XyPos | crystal::Dir::XyNeg => {
-                                    //     Vector3::new(0.8f32, 0.8f32, 0.8f32)
-                                    // }
-                                    _ => Vector3::zero(),
-                                    // let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0); //random::<f32>(), 1.0, 1.0);
-                                    // scene.diffuse[i] = Vector3::new(color.0, color.1, color.2);
-                                }
-                            }
-                        }
-                    }
-                    Ok(2) => {
-                        let mut rng = thread_rng();
-
-                        let color1 = hsv_to_rgb(rng.gen_range(0.0, 180.0), 1.0, 1.0);
-                        // let color1 = Vector3::new(1f32, 0.5f32, 0f32);
-                        let color2 = hsv_to_rgb(rng.gen_range(180.0, 360.0), 1.0, 1.0);
-
-                        for (i, plane) in scene.planes.planes_iter().enumerate() {
-                            scene.diffuse[i] = Vector3::new(1f32, 1f32, 1f32);
-                            scene.emit[i] = if (plane.cell.y) % 3 != 0 {
-                                Vector3::zero()
-                            } else {
-                                match plane.dir {
-                                    crystal::Dir::XyPos => color1,
-                                    crystal::Dir::XyNeg => color2,
-                                    // crystal::Dir::XyPos | crystal::Dir::XyNeg => {
-                                    //     Vector3::new(0.8f32, 0.8f32, 0.8f32)
-                                    // }
-                                    _ => Vector3::zero(),
-                                    // let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0); //random::<f32>(), 1.0, 1.0);
-                                    // scene.diffuse[i] = Vector3::new(color.0, color.1, color.2);
-                                }
-                            }
-                        }
-                    }
-                    Ok(3) => {
-                        let mut rng = thread_rng();
-
-                        for i in 0..scene.planes.num_planes() {
-                            // seriously, there is no Vec.fill?
-                            scene.diffuse[i] = Vec3::new(1f32, 1f32, 1f32);
-                            scene.emit[i] = Vec3::zero();
-                        }
-
-                        let num_dots = 1000;
-                        for _ in 0..num_dots {
-                            let i = rng.gen_range(0, scene.planes.num_planes());
-                            scene.emit[i] = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
-                        }
-                    }
-                    _ => {}
-                }
-            });
+            let light_mode = Rc::new(RefCell::new(0));
+            let mut last_light_mode = -1;
+            binding_dispatcher.bind_i32("light_mode", light_mode.clone());
 
             // let mut offs = 0;
             while !do_stop {
                 binding_dispatcher.dispatch();
-                let mut scene = scene.borrow_mut();
-                let mut scene = &mut *scene;
+
+                let light_mode = *light_mode.borrow();
+
+                if light_mode != last_light_mode {
+                    match light_mode {
+                        1 => {
+                            let mut rng = thread_rng();
+
+                            let color1 = hsv_to_rgb(rng.gen_range(0.0, 180.0), 1.0, 1.0);
+                            let color2 = hsv_to_rgb(rng.gen_range(180.0, 360.0), 1.0, 1.0);
+                            let color3 = hsv_to_rgb(rng.gen_range(0.0, 180.0), 1.0, 1.0);
+                            let color4 = hsv_to_rgb(rng.gen_range(180.0, 360.0), 1.0, 1.0);
+
+                            for (i, plane) in scene.planes.planes_iter().enumerate() {
+                                scene.diffuse[i] = Vector3::new(1f32, 1f32, 1f32);
+
+                                let up = plane.cell + crystal::Dir::ZxPos.get_normal::<i32>();
+                                let not_edge = (&scene.bitmap as &Bitmap).get(up);
+
+                                scene.emit[i] = if not_edge {
+                                    Vector3::zero()
+                                } else {
+                                    match plane.dir {
+                                        crystal::Dir::YzPos => color1,
+                                        crystal::Dir::YzNeg => color2,
+                                        crystal::Dir::XyPos => color3,
+                                        crystal::Dir::XyNeg => color4,
+                                        // crystal::Dir::XyPos | crystal::Dir::XyNeg => {
+                                        //     Vector3::new(0.8f32, 0.8f32, 0.8f32)
+                                        // }
+                                        _ => Vector3::zero(),
+                                        // let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0); //random::<f32>(), 1.0, 1.0);
+                                        // scene.diffuse[i] = Vector3::new(color.0, color.1, color.2);
+                                    }
+                                }
+                            }
+                        }
+                        2 => {
+                            let mut rng = thread_rng();
+
+                            let color1 = hsv_to_rgb(rng.gen_range(0.0, 180.0), 1.0, 1.0);
+                            // let color1 = Vector3::new(1f32, 0.5f32, 0f32);
+                            let color2 = hsv_to_rgb(rng.gen_range(180.0, 360.0), 1.0, 1.0);
+
+                            for (i, plane) in scene.planes.planes_iter().enumerate() {
+                                scene.diffuse[i] = Vector3::new(1f32, 1f32, 1f32);
+                                scene.emit[i] = if (plane.cell.y) % 3 != 0 {
+                                    Vector3::zero()
+                                } else {
+                                    match plane.dir {
+                                        crystal::Dir::XyPos => color1,
+                                        crystal::Dir::XyNeg => color2,
+                                        // crystal::Dir::XyPos | crystal::Dir::XyNeg => {
+                                        //     Vector3::new(0.8f32, 0.8f32, 0.8f32)
+                                        // }
+                                        _ => Vector3::zero(),
+                                        // let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0); //random::<f32>(), 1.0, 1.0);
+                                        // scene.diffuse[i] = Vector3::new(color.0, color.1, color.2);
+                                    }
+                                }
+                            }
+                        }
+                        3 => {
+                            let mut rng = thread_rng();
+
+                            for i in 0..scene.planes.num_planes() {
+                                // seriously, there is no Vec.fill?
+                                scene.diffuse[i] = Vec3::new(1f32, 1f32, 1f32);
+                                scene.emit[i] = Vec3::zero();
+                            }
+
+                            let num_dots = 1000;
+                            for _ in 0..num_dots {
+                                let i = rng.gen_range(0, scene.planes.num_planes());
+                                scene.emit[i] = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                last_light_mode = light_mode;
 
                 while let Ok(event) = rx_event.try_recv() {
                     match event {

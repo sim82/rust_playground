@@ -1,9 +1,8 @@
-use rust_playground::render_bits;
+use rust_playground::{render_bits, script};
 
-use crate::render_bits::{
+use render_bits::{
     InputStateEventDispatcher, PlayerFlyModel, RenderDelegate, RenderTest, VulcanoState,
 };
-
 use vulkano::buffer::{BufferUsage, CpuBufferPool, ImmutableBuffer};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
@@ -186,7 +185,11 @@ impl RenderDelegate for TestDelgate {
         ));
     }
 
-    fn update(&mut self, vk_state: &VulcanoState) -> Box<GpuFuture> {
+    fn update(
+        &mut self,
+        vk_state: &VulcanoState,
+        _env: &mut script::Environment,
+    ) -> Box<GpuFuture> {
         // let now = Instant::now();
         // let d_time = now - self.last_time;
         self.last_time = Instant::now();

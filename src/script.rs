@@ -1,4 +1,6 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::mpsc::{Receiver, Sender};
 
 #[derive(Clone)]
@@ -15,6 +17,7 @@ pub struct BindingDispatcher {
     rx: Receiver<BindingAction>,
 
     callbacks: HashMap<String, Box<FnMut(String, String, Option<String>)>>,
+    i32_bindings: HashMap<String, Rc<RefCell<i32>>>,
 }
 
 impl BindingDispatcher {
@@ -22,6 +25,7 @@ impl BindingDispatcher {
         BindingDispatcher {
             rx: rx,
             callbacks: HashMap::new(),
+            i32_bindings: HashMap::new(),
         }
     }
 
@@ -32,13 +36,22 @@ impl BindingDispatcher {
     ) {
         self.callbacks.insert(name.into(), Box::new(c));
     }
+    pub fn bind_i32(&mut self, name: &str, i: Rc<RefCell<i32>>) {
+        self.i32_bindings.insert(name.into(), i);
+    }
 
     pub fn dispatch(&mut self) {
         loop {
             match self.rx.try_recv() {
                 Ok(BindingAction::Update(name, value, old)) => {
                     match self.callbacks.get_mut(&name) {
-                        Some(cb) => (*cb)(name, value, old),
+                        Some(cb) => (*cb)(name.clone(), value.clone(), old),
+                        _ => (),
+                    }
+                    match self.i32_bindings.get_mut(&name) {
+                        Some(binding) => {
+                            binding.replace(value.parse::<i32>().unwrap());
+                        }
                         _ => (),
                     }
                 }
@@ -78,3 +91,5 @@ impl Environment {
             .drain_filter(|sub| sub.send(action.clone()).is_err());
     }
 }
+
+fn parse(line: &str, env: &mut Environment) {}

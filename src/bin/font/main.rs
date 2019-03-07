@@ -1,4 +1,4 @@
-use rust_playground::render_bits;
+use rust_playground::{render_bits, script};
 
 use crate::render_bits::RenderDelegate;
 use crate::render_bits::RenderTest;
@@ -44,7 +44,7 @@ impl RenderDelegate for TestDelgate {
         // text_console.framebuffer_changed(vk_state);
     }
 
-    fn update(&mut self, vk_state: &VulcanoState) -> Box<GpuFuture> {
+    fn update(&mut self, vk_state: &VulcanoState, env: &mut script::Environment) -> Box<GpuFuture> {
         // if let Some(text_console) = &mut self.text_console {
         //     text_console.add_line(&format!("time: {:?}\n", Instant::now()));
         //     text_console.update(render_test)
