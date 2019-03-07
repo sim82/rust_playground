@@ -1,6 +1,5 @@
 use rust_playground::{crystal, render_bits};
 
-use crate::render_bits::text_console::TextConsole;
 use crate::render_bits::PlayerFlyModel;
 use crate::render_bits::RenderDelegate;
 use crate::render_bits::RenderTest;

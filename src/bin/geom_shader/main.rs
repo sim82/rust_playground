@@ -1,31 +1,24 @@
 use rust_playground::render_bits;
 
 use crate::render_bits::{
-    InputState, InputStateEventDispatcher, PlayerFlyModel, RenderDelegate, RenderTest, VulcanoState,
+    InputStateEventDispatcher, PlayerFlyModel, RenderDelegate, RenderTest, VulcanoState,
 };
 
-use vulkano::buffer::cpu_pool::CpuBufferPoolChunk;
 use vulkano::buffer::{BufferUsage, CpuBufferPool, ImmutableBuffer};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
-use vulkano::framebuffer::{FramebufferAbstract, Subpass};
+use vulkano::framebuffer::Subpass;
 use vulkano::pipeline::vertex::TwoBuffersDefinition;
 use vulkano::pipeline::viewport::Viewport;
 use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
 use vulkano::sync::GpuFuture;
 
-use cgmath::prelude::*;
-use cgmath::{Matrix4, Rad, Vector3};
+use cgmath::{Matrix4, Rad};
 
-use rand::prelude::*;
-use render_bits::{Normal, Vertex};
+use render_bits::Vertex;
 use std::iter;
-use std::sync::{
-    mpsc::{channel, sync_channel, Receiver, Sender},
-    Arc,
-};
-use std::thread::spawn;
-use std::thread::JoinHandle;
+use std::sync::Arc;
+
 use std::time::Instant;
 
 #[derive(Copy, Clone)]
@@ -57,23 +50,17 @@ impl TestDelgate {
             ),
             vertex_buffer: None,
             colors_buffer_gpu: None,
-            // colors_buffer_pool: None,
-            // colors_buffer: None,
             index_buffer: None,
             uniform_buffer: None,
             pipeline: None,
-            // colors_cpu: Vec::new(),
             last_time: Instant::now(),
             input_state: InputStateEventDispatcher::new(),
-            // scene: None,
         }
     }
 }
 
 impl RenderDelegate for TestDelgate {
     fn init(&mut self, render_test: &mut RenderTest) -> Box<vulkano::sync::GpuFuture> {
-        //self.vertex_buffer = vulkano::buffer::CpuAccessibleBuffer::from_data(device: Arc<Device>, usage: BufferUsage, data: T)
-
         let (vb, vb_fut) = vulkano::buffer::ImmutableBuffer::from_iter(
             [
                 Vertex {
@@ -237,7 +224,6 @@ impl RenderDelegate for TestDelgate {
     ) -> Result<AutoCommandBufferBuilder, render_bits::Error> {
         match (
             &self.vertex_buffer,
-            // &self.colors_buffer,
             &self.colors_buffer_gpu,
             &self.index_buffer,
             &self.uniform_buffer,
@@ -245,7 +231,6 @@ impl RenderDelegate for TestDelgate {
         ) {
             (
                 Some(vertex_buffer),
-                // Some(colors_buffer),
                 Some(colors_buffer_gpu),
                 Some(index_buffer),
                 Some(uniform_buffer),

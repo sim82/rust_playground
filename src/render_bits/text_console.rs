@@ -229,8 +229,6 @@ impl TextConsole {
         }
 
         loop {
-            // let input_events = Vec::new();
-
             let mut exec_lines = Vec::new();
             match self.input_source.try_recv() {
                 Ok(InputEvent::Key(keycode, state)) => {
@@ -269,7 +267,6 @@ impl TextConsole {
 
         let font_size = (16f64 * self.hidpi_factor) as f32;
         let mut il: String = ">".into();
-        // il.append(self.input_line.clone());
 
         il += &self.input_line;
         il += "_";
