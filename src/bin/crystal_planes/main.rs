@@ -113,7 +113,7 @@ impl RadWorker {
             while !do_stop {
                 binding_dispatcher.dispatch();
 
-                if let Some(light_mode) = light_mode.borrow_mut().get_once::<i32>() {
+                if let Some(light_mode) = light_mode.borrow_mut().get_update::<i32>() {
                     match light_mode {
                         1 => {
                             let mut rng = thread_rng();
@@ -497,17 +497,10 @@ impl RenderDelegate for CrystalRenderDelgate {
             light_update = true;
         }
         if input_state.action1 {
-            env.set("light_mode", "1");
-            // if let Some(tx_pos) = &self.tx_pos {
-            //     tx_pos.send(GameEvent::DoAction1).unwrap();
-            // }
+            script::parse(&"set light_mode 1", env);
         }
         if input_state.action2 {
-            env.set("light_mode", "2");
-
-            // if let Some(tx_pos) = &self.tx_pos {
-            //     tx_pos.send(GameEvent::DoAction2).unwrap();
-            // }
+            script::parse(&"set light_mode 2", env);
         }
         if light_update {
             if let Some(tx_pos) = &self.tx_pos {

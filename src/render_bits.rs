@@ -40,7 +40,7 @@ use winit::Window;
 use cgmath::prelude::*;
 use cgmath::{Deg, Matrix4, Point3, Vector4};
 
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
 pub mod math;
@@ -549,6 +549,8 @@ impl RenderTest {
         let mut previous_frame = delegate.init(self);
         let mut old_pos = None as Option<winit::dpi::LogicalPosition>;
 
+        let (script_line_sink, script_lines_source) = channel();
+        self.text_console.set_input_line_sink(script_line_sink);
         loop {
             previous_frame.cleanup_finished();
 
@@ -572,6 +574,15 @@ impl RenderTest {
 
             self.text_console.update(&self.vk_state);
             let update_fut = delegate.update(&self.vk_state, &mut self.script_env);
+
+            loop {
+                if let Ok(line) = script_lines_source.try_recv() {
+                    script::parse(&line, &mut self.script_env);
+                } else {
+                    break;
+                }
+            }
+
             let builder = AutoCommandBufferBuilder::primary_one_time_submit(
                 self.vk_state.device.clone(),
                 self.vk_state.queue.family(),

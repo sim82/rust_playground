@@ -82,10 +82,14 @@ pub struct TextConsole {
     input_source: Receiver<render_bits::InputEvent>,
     input_sink: Sender<render_bits::InputEvent>,
 
+    input_line_sink: Option<Sender<String>>,
+
     key_focus: bool,
 
     dimensions: [u32; 2],
     hidpi_factor: f64,
+
+    history_line: String,
 }
 
 fn map_to_visible(keycode: winit::VirtualKeyCode) -> Option<char> {
@@ -129,6 +133,7 @@ fn map_to_visible(keycode: winit::VirtualKeyCode) -> Option<char> {
         winit::VirtualKeyCode::Key9 => Some('9'),
         winit::VirtualKeyCode::Key0 => Some('0'),
         winit::VirtualKeyCode::Space => Some(' '),
+        winit::VirtualKeyCode::Subtract => Some('_'),
 
         _ => None,
     }
@@ -178,6 +183,8 @@ impl TextConsole {
             key_focus: false,
             dimensions: [0u32; 2],
             hidpi_factor: 0f64,
+            input_line_sink: None,
+            history_line: "".into(),
         }
     }
 
@@ -244,7 +251,14 @@ impl TextConsole {
                                 }
                                 winit::VirtualKeyCode::Return => {
                                     exec_lines.push(self.input_line.clone());
+                                    self.history_line = self.input_line.clone();
                                     // self.add_line(&self.input_line);
+                                    self.input_line.clear();
+                                }
+                                winit::VirtualKeyCode::Up => {
+                                    self.input_line = self.history_line.clone();
+                                }
+                                winit::VirtualKeyCode::Down => {
                                     self.input_line.clear();
                                 }
                                 _ => (),
@@ -258,6 +272,9 @@ impl TextConsole {
 
             for line in exec_lines {
                 self.add_line(&line);
+                if let Some(input_line_sink) = &self.input_line_sink {
+                    input_line_sink.send(line).unwrap();
+                }
             }
         }
     }
@@ -500,6 +517,10 @@ impl TextConsole {
 
     pub fn get_input_sink(&self) -> Sender<InputEvent> {
         self.input_sink.clone()
+    }
+
+    pub fn set_input_line_sink(&mut self, sink: Sender<String>) {
+        self.input_line_sink = Some(sink);
     }
 }
 

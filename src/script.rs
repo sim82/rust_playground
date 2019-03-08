@@ -54,7 +54,7 @@ impl ValueWatch {
         self.updated = true;
     }
 
-    pub fn get_once<T: std::str::FromStr + std::default::Default>(&mut self) -> Option<T> {
+    pub fn get_update<T: std::str::FromStr + std::default::Default>(&mut self) -> Option<T> {
         if self.updated {
             self.updated = false;
             Some(self.value.get::<T>())
@@ -157,4 +157,10 @@ impl Environment {
     }
 }
 
-fn parse(line: &str, env: &mut Environment) {}
+pub fn parse(line: &str, env: &mut Environment) {
+    let token = line.split_whitespace().collect::<Vec<_>>();
+
+    if token.len() >= 3 && token[0] == "set" {
+        env.set(token[1], token[2])
+    }
+}
