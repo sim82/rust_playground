@@ -13,11 +13,64 @@ pub struct Environment {
     variables: HashMap<String, String>,
 }
 
+#[derive(Default)]
+pub struct Value {
+    v: String,
+}
+
+impl Value {
+    fn new_internal(v: &str) -> Value {
+        Value { v: v.into() }
+    }
+    pub fn new<T: std::fmt::Display>(v: T) -> Value {
+        Value {
+            v: format!("{}", v),
+        }
+    }
+
+    pub fn get<T: std::str::FromStr + std::default::Default>(&self) -> T {
+        match self.v.parse::<T>() {
+            Ok(v) => v,
+            _ => std::default::Default::default(), //panic!("conversion failed"), // todo: default value
+        }
+    }
+}
+
+pub struct ValueWatch {
+    value: Value,
+    updated: bool,
+}
+
+impl ValueWatch {
+    pub fn new() -> Rc<RefCell<ValueWatch>> {
+        Rc::new(RefCell::new(ValueWatch {
+            value: std::default::Default::default(),
+            updated: true,
+        }))
+    }
+
+    pub fn set(&mut self, v: Value) {
+        self.value = v;
+        self.updated = true;
+    }
+
+    pub fn get_once<T: std::str::FromStr + std::default::Default>(&mut self) -> Option<T> {
+        if self.updated {
+            self.updated = false;
+            Some(self.value.get::<T>())
+        } else {
+            None
+        }
+    }
+}
+
 pub struct BindingDispatcher {
     rx: Receiver<BindingAction>,
 
     callbacks: HashMap<String, Box<FnMut(String, String, Option<String>)>>,
     i32_bindings: HashMap<String, Rc<RefCell<i32>>>,
+
+    value_bindings: HashMap<String, Rc<RefCell<ValueWatch>>>,
 }
 
 impl BindingDispatcher {
@@ -26,6 +79,7 @@ impl BindingDispatcher {
             rx: rx,
             callbacks: HashMap::new(),
             i32_bindings: HashMap::new(),
+            value_bindings: HashMap::new(),
         }
     }
 
@@ -40,6 +94,9 @@ impl BindingDispatcher {
         self.i32_bindings.insert(name.into(), i);
     }
 
+    pub fn bind_value(&mut self, name: &str, v: Rc<RefCell<ValueWatch>>) {
+        self.value_bindings.insert(name.into(), v);
+    }
     pub fn dispatch(&mut self) {
         loop {
             match self.rx.try_recv() {
@@ -51,6 +108,14 @@ impl BindingDispatcher {
                     match self.i32_bindings.get_mut(&name) {
                         Some(binding) => {
                             binding.replace(value.parse::<i32>().unwrap());
+                        }
+                        _ => (),
+                    }
+
+                    match self.value_bindings.get_mut(&name) {
+                        Some(binding) => {
+                            // binding.replace(value.parse::<i32>().unwrap());
+                            binding.borrow_mut().set(Value::new_internal(&*value));
                         }
                         _ => (),
                     }

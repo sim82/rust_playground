@@ -103,17 +103,17 @@ impl RadWorker {
             let mut last_stat = Instant::now();
             let mut do_stop = false;
 
-            let light_mode = Rc::new(RefCell::new(0));
-            let mut last_light_mode = -1;
-            binding_dispatcher.bind_i32("light_mode", light_mode.clone());
+            let light_mode = script::ValueWatch::new();
+            binding_dispatcher.bind_value("light_mode", light_mode.clone());
+            // let light_mode = Rc::new(RefCell::new(0));
+            // let mut last_light_mode = -1;
+            // binding_dispatcher.bind_i32("light_mode", light_mode.clone());
 
             // let mut offs = 0;
             while !do_stop {
                 binding_dispatcher.dispatch();
 
-                let light_mode = *light_mode.borrow();
-
-                if light_mode != last_light_mode {
+                if let Some(light_mode) = light_mode.borrow_mut().get_once::<i32>() {
                     match light_mode {
                         1 => {
                             let mut rng = thread_rng();
@@ -190,7 +190,6 @@ impl RadWorker {
                         _ => {}
                     }
                 }
-                last_light_mode = light_mode;
 
                 while let Ok(event) = rx_event.try_recv() {
                     match event {
