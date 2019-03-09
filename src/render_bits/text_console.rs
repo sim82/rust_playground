@@ -92,53 +92,6 @@ pub struct TextConsole {
     history_line: String,
 }
 
-fn map_to_visible(keycode: winit::VirtualKeyCode) -> Option<char> {
-    println!("key: {:?}", keycode);
-    match keycode {
-        winit::VirtualKeyCode::Q => Some('q'),
-        winit::VirtualKeyCode::W => Some('w'),
-        winit::VirtualKeyCode::E => Some('e'),
-        winit::VirtualKeyCode::R => Some('r'),
-        winit::VirtualKeyCode::T => Some('t'),
-        winit::VirtualKeyCode::Y => Some('y'),
-        winit::VirtualKeyCode::U => Some('u'),
-        winit::VirtualKeyCode::I => Some('i'),
-        winit::VirtualKeyCode::O => Some('o'),
-        winit::VirtualKeyCode::P => Some('p'),
-        winit::VirtualKeyCode::A => Some('a'),
-        winit::VirtualKeyCode::S => Some('s'),
-        winit::VirtualKeyCode::D => Some('d'),
-        winit::VirtualKeyCode::F => Some('f'),
-        winit::VirtualKeyCode::G => Some('g'),
-        winit::VirtualKeyCode::H => Some('h'),
-        winit::VirtualKeyCode::J => Some('j'),
-        winit::VirtualKeyCode::K => Some('k'),
-        winit::VirtualKeyCode::L => Some('l'),
-        winit::VirtualKeyCode::Z => Some('z'),
-        winit::VirtualKeyCode::X => Some('x'),
-        winit::VirtualKeyCode::C => Some('c'),
-        winit::VirtualKeyCode::V => Some('v'),
-        winit::VirtualKeyCode::B => Some('b'),
-        winit::VirtualKeyCode::N => Some('n'),
-        winit::VirtualKeyCode::M => Some('m'),
-        winit::VirtualKeyCode::Period => Some('.'),
-        winit::VirtualKeyCode::Key1 => Some('1'),
-        winit::VirtualKeyCode::Key2 => Some('2'),
-        winit::VirtualKeyCode::Key3 => Some('3'),
-        winit::VirtualKeyCode::Key4 => Some('4'),
-        winit::VirtualKeyCode::Key5 => Some('5'),
-        winit::VirtualKeyCode::Key6 => Some('6'),
-        winit::VirtualKeyCode::Key7 => Some('7'),
-        winit::VirtualKeyCode::Key8 => Some('8'),
-        winit::VirtualKeyCode::Key9 => Some('9'),
-        winit::VirtualKeyCode::Key0 => Some('0'),
-        winit::VirtualKeyCode::Space => Some(' '),
-        winit::VirtualKeyCode::Subtract => Some('_'),
-
-        _ => None,
-    }
-}
-
 impl TextConsole {
     pub fn new(vk_state: &VulcanoState) -> Self {
         let (tx, rx) = channel();
@@ -240,33 +193,31 @@ impl TextConsole {
             match self.input_source.try_recv() {
                 Ok(InputEvent::Key(keycode, state)) => {
                     if state == winit::ElementState::Pressed {
-                        if let Some(c) = map_to_visible(keycode) {
-                            self.input_line.push(c);
-                        } else {
-                            match keycode {
-                                winit::VirtualKeyCode::Back => {
-                                    if !self.input_line.is_empty() {
-                                        self.input_line.pop();
-                                    }
+                        match keycode {
+                            winit::VirtualKeyCode::Back => {
+                                if !self.input_line.is_empty() {
+                                    self.input_line.pop();
                                 }
-                                winit::VirtualKeyCode::Return => {
-                                    exec_lines.push(self.input_line.clone());
-                                    self.history_line = self.input_line.clone();
-                                    // self.add_line(&self.input_line);
-                                    self.input_line.clear();
-                                }
-                                winit::VirtualKeyCode::Up => {
-                                    self.input_line = self.history_line.clone();
-                                }
-                                winit::VirtualKeyCode::Down => {
-                                    self.input_line.clear();
-                                }
-                                _ => (),
                             }
+                            winit::VirtualKeyCode::Return => {
+                                exec_lines.push(self.input_line.clone());
+                                self.history_line = self.input_line.clone();
+                                // self.add_line(&self.input_line);
+                                self.input_line.clear();
+                            }
+                            winit::VirtualKeyCode::Up => {
+                                self.input_line = self.history_line.clone();
+                            }
+                            winit::VirtualKeyCode::Down => {
+                                self.input_line.clear();
+                            }
+                            _ => (),
                         }
+                        // }
                     }
                 }
                 Ok(InputEvent::KeyFocus(b)) => self.key_focus = b,
+                Ok(InputEvent::Character(c)) if !c.is_control() => self.input_line.push(c),
                 _ => break,
             }
 
@@ -324,7 +275,7 @@ impl TextConsole {
                 |rect, tex_data| {
                     (&mut glyph_data[..], size).blit(rect, tex_data);
                     glyph_updated = true;
-                    println!("blit");
+                    // println!("blit");
                 },
                 |vertex_data| {
                     (

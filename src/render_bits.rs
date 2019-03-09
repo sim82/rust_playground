@@ -99,6 +99,7 @@ type Vec4 = Vector4<f32>;
 pub enum InputEvent {
     Key(winit::VirtualKeyCode, winit::ElementState),
     KeyFocus(bool),
+    Character(char),
     PointerDelta(f32, f32),
 }
 
@@ -259,7 +260,7 @@ impl std::fmt::Debug for PlayerFlyModel {
     }
 }
 
-pub struct TabInputMultiplexer {
+pub struct ConsoleInputMultiplexer {
     pub sink: Sender<InputEvent>,
     source: Receiver<InputEvent>,
 
@@ -267,17 +268,19 @@ pub struct TabInputMultiplexer {
     pub mx_sink2: Option<Sender<InputEvent>>,
 
     s2_active: bool,
+    key: winit::VirtualKeyCode,
 }
 
-impl TabInputMultiplexer {
-    pub fn new() -> TabInputMultiplexer {
+impl ConsoleInputMultiplexer {
+    pub fn new() -> ConsoleInputMultiplexer {
         let (tx, rx) = std::sync::mpsc::channel();
-        TabInputMultiplexer {
+        ConsoleInputMultiplexer {
             sink: tx,
             source: rx,
             mx_sink1: None,
             mx_sink2: None,
             s2_active: false,
+            key: winit::VirtualKeyCode::Grave,
         }
     }
 
@@ -285,7 +288,7 @@ impl TabInputMultiplexer {
         loop {
             match self.source.try_recv() {
                 Ok(InputEvent::Key(key, state)) => {
-                    if key == winit::VirtualKeyCode::Tab && state == winit::ElementState::Released {
+                    if key == self.key && state == winit::ElementState::Released {
                         self.dispatch(InputEvent::KeyFocus(false));
                         self.s2_active = !self.s2_active;
                         self.dispatch(InputEvent::KeyFocus(true));
@@ -348,7 +351,7 @@ pub struct RenderTest {
 
     pub text_console: TextConsole,
     pub script_env: script::Environment,
-    input_multiplexer: TabInputMultiplexer,
+    input_multiplexer: ConsoleInputMultiplexer,
 }
 
 impl RenderTest {
@@ -480,7 +483,7 @@ impl RenderTest {
 
             events_loop: events_loop,
             text_console: text_console,
-            input_multiplexer: TabInputMultiplexer::new(),
+            input_multiplexer: ConsoleInputMultiplexer::new(),
             script_env: script::Environment::new(),
         }
     }
@@ -642,52 +645,70 @@ impl RenderTest {
 
             // let input_sinks = self.input_sinks.clone();
             // let mut down_keys = HashSet::new();
-            self.events_loop.poll_events(|ev| match ev {
-                winit::Event::WindowEvent {
-                    event: winit::WindowEvent::CloseRequested,
-                    ..
-                } => done = true,
-                winit::Event::WindowEvent {
-                    event: winit::WindowEvent::Resized(_),
-                    ..
-                } => recreate_swapchain = true,
-                winit::Event::WindowEvent {
-                    event: winit::WindowEvent::CursorMoved { position: pos, .. },
-                    ..
-                } => {
-                    if let Some(op) = old_pos {
-                        // input_state.d_lon = Deg((pos.x - op.x) as f32);
-                        // input_state.d_lat = Deg((pos.y - op.y) as f32);
+            // let mut tmp = Vec::new();
 
-                        events.push(InputEvent::PointerDelta(
-                            (pos.x - op.x) as f32,
-                            (pos.y - op.y) as f32,
-                        ));
-                    }
+            self.events_loop.poll_events(|ev| {
+                // tmp.push(format!("{:?}", ev));
+                match ev {
+                    winit::Event::WindowEvent {
+                        event: winit::WindowEvent::CloseRequested,
+                        ..
+                    } => done = true,
+                    winit::Event::WindowEvent {
+                        event: winit::WindowEvent::Resized(_),
+                        ..
+                    } => recreate_swapchain = true,
+                    winit::Event::WindowEvent {
+                        event: winit::WindowEvent::CursorMoved { position: pos, .. },
+                        ..
+                    } => {
+                        if let Some(op) = old_pos {
+                            // input_state.d_lon = Deg((pos.x - op.x) as f32);
+                            // input_state.d_lat = Deg((pos.y - op.y) as f32);
 
-                    old_pos = Some(pos);
-                }
-                winit::Event::WindowEvent {
-                    event:
-                        winit::WindowEvent::KeyboardInput {
-                            input:
-                                winit::KeyboardInput {
-                                    state,
-                                    virtual_keycode: Some(keycode),
-                                    ..
-                                },
-                            ..
-                        },
-                    ..
-                } => {
-                    events.push(InputEvent::Key(keycode, state));
-                    match keycode {
-                        winit::VirtualKeyCode::F3 => done = true,
-                        _ => {}
+                            events.push(InputEvent::PointerDelta(
+                                (pos.x - op.x) as f32,
+                                (pos.y - op.y) as f32,
+                            ));
+                        }
+
+                        old_pos = Some(pos);
                     }
+                    winit::Event::WindowEvent {
+                        event:
+                            winit::WindowEvent::KeyboardInput {
+                                input:
+                                    winit::KeyboardInput {
+                                        state,
+                                        virtual_keycode: Some(keycode),
+                                        ..
+                                    },
+                                ..
+                            },
+                        ..
+                    } => {
+                        events.push(InputEvent::Key(keycode, state));
+                        match keycode {
+                            winit::VirtualKeyCode::F3 => done = true,
+                            _ => {}
+                        }
+                    }
+                    winit::Event::WindowEvent {
+                        event: winit::WindowEvent::ReceivedCharacter(c),
+                        ..
+                    } => {
+                        // ignore 'grave' since it is used for console switching (and no one will ever use it...)
+                        if c != '`' {
+                            events.push(InputEvent::Character(c));
+                        }
+                    }
+                    _ => (),
                 }
-                _ => (),
             });
+
+            // for t in tmp {
+            //     self.text_console.add_line(&t);
+            // }
 
             for event in events {
                 // self.input_sinks
@@ -701,12 +722,11 @@ impl RenderTest {
             }
         }
     }
-
+    // pub fn event(ev: winit::Event) {}
     pub fn set_player_input_sink(&mut self, sender: Sender<InputEvent>) {
         self.input_multiplexer.mx_sink1 = Some(sender);
     }
 }
-
 pub trait RenderDelegate {
     fn init(&mut self, render_test: &mut RenderTest) -> Box<vulkano::sync::GpuFuture>;
     fn shutdown(self);
