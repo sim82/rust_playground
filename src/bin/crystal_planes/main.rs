@@ -417,7 +417,7 @@ impl RenderDelegate for CrystalRenderDelgate {
             colors_buffer_pool,
             colors_cpu,
             rx,
-            render_test.text_console.get_sender(),
+            render_test.text_console.borrow().get_sender(),
         );
         render_test
             .script_env

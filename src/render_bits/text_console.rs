@@ -49,6 +49,15 @@ impl Canvas for (&mut [u8], (u32, u32)) {
     }
 }
 
+pub enum CompletionQuery {
+    None,
+    Variable(String),
+}
+
+pub trait CompletionProvider {
+    fn complete(&self, template: CompletionQuery) -> Vec<String>;
+}
+
 type GlyphVertexData = (
     rusttype::Point<i32>,
     rusttype::Point<i32>,
@@ -180,7 +189,7 @@ impl TextConsole {
         }
     }
 
-    pub fn receive(&mut self) {
+    pub fn receive_input(&mut self, completion_provider: &CompletionProvider) {
         loop {
             match self.rx.try_recv() {
                 Ok(string) => self.add_line(&string),
@@ -211,6 +220,14 @@ impl TextConsole {
                             winit::VirtualKeyCode::Down => {
                                 self.input_line.clear();
                             }
+                            winit::VirtualKeyCode::Tab => {
+                                let completions =
+                                    completion_provider.complete(self.get_completion_query());
+
+                                for comp in completions {
+                                    self.add_line(&comp);
+                                }
+                            }
                             _ => (),
                         }
                         // }
@@ -231,8 +248,6 @@ impl TextConsole {
     }
 
     pub fn update(&mut self, vk_state: &VulcanoState) -> Box<vulkano::sync::GpuFuture> {
-        self.receive();
-
         let font_size = (16f64 * self.hidpi_factor) as f32;
         let mut il: String = ">".into();
 
@@ -473,11 +488,17 @@ impl TextConsole {
     pub fn set_input_line_sink(&mut self, sink: Sender<String>) {
         self.input_line_sink = Some(sink);
     }
-}
 
-// struct TabMultiplex {
-//     sender: Sender
-// }
+    fn get_completion_query(&self) -> CompletionQuery {
+        let tokens = self.input_line.split_whitespace().collect::<Vec<_>>();
+
+        if tokens.len() == 2 && tokens[0] == "set" {
+            CompletionQuery::Variable(tokens[1].into())
+        } else {
+            CompletionQuery::None
+        }
+    }
+}
 
 pub mod vs {
     vulkano_shaders::shader! {

@@ -10,7 +10,7 @@ pub enum BindingAction {
 
 pub struct Environment {
     subscriptions: Vec<Sender<BindingAction>>,
-    variables: HashMap<String, String>,
+    pub variables: HashMap<String, String>,
 }
 
 #[derive(Default)]
