@@ -9,6 +9,8 @@ use crystal::rad::Scene;
 use crystal::{Bitmap, PlanesSep};
 use crystal::{Point3, Point3i, Vec3};
 
+use script::ToValue;
+
 use std::iter;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -26,12 +28,9 @@ use vulkano::sync::GpuFuture;
 use cgmath::prelude::*;
 use cgmath::{Matrix4, Rad, Vector3};
 
-use crate::script::Environment;
 use rand::prelude::*;
 use render_bits::Vertex;
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::str::FromStr;
+
 use std::sync::mpsc::{channel, sync_channel, Receiver, Sender};
 use std::thread::spawn;
 use std::thread::JoinHandle;
@@ -322,6 +321,7 @@ impl CrystalRenderDelgate {
 
 impl RenderDelegate for CrystalRenderDelgate {
     fn init(&mut self, render_test: &mut RenderTest) -> Box<vulkano::sync::GpuFuture> {
+        render_test.script_env.set("light_mode", 1i32.to_value());
         let vk_state = &render_test.vk_state;
         let scene;
         {
