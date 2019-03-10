@@ -350,7 +350,7 @@ pub struct RenderTest {
     pub vk_state: VulcanoState,
     events_loop: winit::EventsLoop,
 
-    pub text_console: RefCell<TextConsole>,
+    pub text_console: TextConsole,
     pub script_env: script::Environment,
     input_multiplexer: ConsoleInputMultiplexer,
 }
@@ -483,7 +483,7 @@ impl RenderTest {
             vk_state: vk_state,
 
             events_loop: events_loop,
-            text_console: RefCell::new(text_console),
+            text_console: text_console,
             input_multiplexer: ConsoleInputMultiplexer::new(),
             script_env: script::Environment::new(),
         }
@@ -548,24 +548,20 @@ impl RenderTest {
         // let mut pipeline = delegate.create_pipeline(&self);
         let mut recreate_swapchain = false;
 
-        self.input_multiplexer.mx_sink2 = Some(self.text_console.borrow().get_input_sink().clone());
+        self.input_multiplexer.mx_sink2 = Some(self.text_console.get_input_sink().clone());
 
         let mut previous_frame = delegate.init(self);
         let mut old_pos = None as Option<winit::dpi::LogicalPosition>;
 
         let (script_line_sink, script_lines_source) = channel();
-        self.text_console
-            .borrow_mut()
-            .set_input_line_sink(script_line_sink);
+        self.text_console.set_input_line_sink(script_line_sink);
         loop {
             previous_frame.cleanup_finished();
 
             if recreate_swapchain {
                 // framebuffers = self.recreate_swapchain();
                 delegate.framebuffer_changed(&self.vk_state);
-                self.text_console
-                    .borrow_mut()
-                    .framebuffer_changed(&self.vk_state);
+                self.text_console.framebuffer_changed(&self.vk_state);
 
                 // pipeline = delegate.create_pipeline(&self);
                 recreate_swapchain = false;
@@ -579,9 +575,9 @@ impl RenderTest {
                     }
                     Err(err) => panic!("{:?}", err),
                 };
-            self.text_console.borrow_mut().receive_input(self);
+            self.text_console.receive_input(&self.script_env);
             // self.text_console.receive_input(self);
-            self.text_console.borrow_mut().update(&self.vk_state);
+            self.text_console.update(&self.vk_state);
             let update_fut = delegate.update(&self.vk_state, &mut self.script_env);
 
             loop {
@@ -610,7 +606,7 @@ impl RenderTest {
                 Err(error) => panic!("error: {}", error),
             };
 
-            let builder = match self.text_console.borrow_mut().render(builder) {
+            let builder = match self.text_console.render(builder) {
                 Ok(builder) => builder,
                 Err(error) => panic!("error: {}", error),
             };
@@ -734,12 +730,12 @@ impl RenderTest {
     }
 }
 
-impl text_console::CompletionProvider for RenderTest {
+impl text_console::CompletionProvider for script::Environment {
     fn complete(&self, template: text_console::CompletionQuery) -> Vec<String> {
         let mut completions = Vec::new();
         match template {
             text_console::CompletionQuery::Variable(name) => {
-                for (key, _) in &self.script_env.variables {
+                for (key, _) in &self.variables {
                     if key.len() < name.len() {
                         continue;
                     }
