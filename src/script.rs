@@ -254,5 +254,7 @@ pub fn parse(line: &str, env: &mut Environment) {
 
     if token.len() >= 3 && token[0] == "set" {
         env.set(token[1], token[2].to_value())
+    } else if token.len() >= 2 && token[0] == "print" {
+        println!("{}: {}", token[1], env.get(token[1]));
     }
 }

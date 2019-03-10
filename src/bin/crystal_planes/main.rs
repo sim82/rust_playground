@@ -104,6 +104,9 @@ impl RadWorker {
 
             let light_mode = script::ValueWatch::new();
             binding_dispatcher.bind_value("light_mode", light_mode.clone());
+
+            let light_pos_watch = script::ValueWatch::new();
+            binding_dispatcher.bind_value("light_pos", light_pos_watch.clone());
             // let light_mode = Rc::new(RefCell::new(0));
             // let mut last_light_mode = -1;
             // binding_dispatcher.bind_i32("light_mode", light_mode.clone());
@@ -190,35 +193,36 @@ impl RadWorker {
                     }
                 }
 
+                if let Some(pos) = light_pos_watch.borrow_mut().get_update::<Point3>() {
+                    light_pos = pos;
+                    light_update = true;
+                    // }
+                    // GameEvent::DoAction1 => {
+
+                    // let color1 = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
+                    let color1 = Vector3::new(1f32, 0.5f32, 0f32);
+                    // let color2 = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
+                    let color2 = Vector3::new(0f32, 1f32, 0f32);
+                    for (i, plane) in scene.planes.planes_iter().enumerate() {
+                        if ((plane.cell.y) / 2) % 2 == 1 {
+                            continue;
+                        }
+                        scene.diffuse[i] = match plane.dir {
+                            crystal::Dir::XyPos => color1,
+                            crystal::Dir::XyNeg => color2,
+                            crystal::Dir::YzPos | crystal::Dir::YzNeg => {
+                                Vector3::new(0.8f32, 0.8f32, 0.8f32)
+                            }
+                            _ => Vector3::new(1f32, 1f32, 1f32),
+                            // let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0); //random::<f32>(), 1.0, 1.0);
+                            // scene.diffuse[i] = Vector3::new(color.0, color.1, color.2);
+                        }
+                    }
+                }
+
                 while let Ok(event) = rx_event.try_recv() {
                     match event {
                         GameEvent::Stop => do_stop = true,
-                        GameEvent::UpdateLightPos(pos) => {
-                            light_pos = pos;
-                            light_update = true;
-                            // }
-                            // GameEvent::DoAction1 => {
-
-                            // let color1 = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
-                            let color1 = Vector3::new(1f32, 0.5f32, 0f32);
-                            // let color2 = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0);
-                            let color2 = Vector3::new(0f32, 1f32, 0f32);
-                            for (i, plane) in scene.planes.planes_iter().enumerate() {
-                                if ((plane.cell.y) / 2) % 2 == 1 {
-                                    continue;
-                                }
-                                scene.diffuse[i] = match plane.dir {
-                                    crystal::Dir::XyPos => color1,
-                                    crystal::Dir::XyNeg => color2,
-                                    crystal::Dir::YzPos | crystal::Dir::YzNeg => {
-                                        Vector3::new(0.8f32, 0.8f32, 0.8f32)
-                                    }
-                                    _ => Vector3::new(1f32, 1f32, 1f32),
-                                    // let color = hsv_to_rgb(rng.gen_range(0.0, 360.0), 1.0, 1.0); //random::<f32>(), 1.0, 1.0);
-                                    // scene.diffuse[i] = Vector3::new(color.0, color.1, color.2);
-                                }
-                            }
-                        }
                         _ => (),
                     }
                 }
@@ -407,6 +411,9 @@ impl RenderDelegate for CrystalRenderDelgate {
         tx.send(GameEvent::UpdateLightPos(self.light_pos.clone()))
             .unwrap(); // send initial update
 
+        render_test
+            .script_env
+            .set("light_pos", self.light_pos.to_value());
         // println!("send");
         self.tx_pos = Some(tx);
 
@@ -503,11 +510,7 @@ impl RenderDelegate for CrystalRenderDelgate {
             script::parse(&"set light_mode 2", env);
         }
         if light_update {
-            if let Some(tx_pos) = &self.tx_pos {
-                tx_pos
-                    .send(GameEvent::UpdateLightPos(self.light_pos.clone()))
-                    .unwrap();
-            }
+            env.set("light_pos", self.light_pos.to_value());
         }
 
         if let Some(rad_worker) = &self.rad_worker {
