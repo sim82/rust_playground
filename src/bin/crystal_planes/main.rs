@@ -31,6 +31,8 @@ use cgmath::{Matrix4, Rad, Vector3};
 use rand::prelude::*;
 use render_bits::Vertex;
 
+use clap::{App, Arg, SubCommand};
+
 use std::sync::mpsc::{channel, sync_channel, Receiver, Sender};
 use std::thread::spawn;
 use std::thread::JoinHandle;
@@ -88,6 +90,7 @@ impl RadWorker {
         mut colors_cpu: Vec<Color>,
         rx_event: Receiver<GameEvent>,
         tx_console: Sender<String>,
+        tx_sync: Sender<()>,
     ) -> RadWorker {
         let (tx, rx) = sync_channel(2);
         let (btx, brx) = channel();
@@ -110,7 +113,7 @@ impl RadWorker {
             // let light_mode = Rc::new(RefCell::new(0));
             // let mut last_light_mode = -1;
             // binding_dispatcher.bind_i32("light_mode", light_mode.clone());
-
+            tx_sync.send(()).unwrap();
             // let mut offs = 0;
             while !do_stop {
                 binding_dispatcher.dispatch();
@@ -411,13 +414,12 @@ impl RenderDelegate for CrystalRenderDelgate {
         tx.send(GameEvent::UpdateLightPos(self.light_pos.clone()))
             .unwrap(); // send initial update
 
-        render_test
-            .script_env
-            .set("light_pos", self.light_pos.to_value());
         // println!("send");
         self.tx_pos = Some(tx);
 
         // self.text_console = Some(TextConsole::new(render_test));
+
+        let (tx_sync, rx_sync) = channel(); // used as semaphore to sync with thread start
 
         let rad_worker = RadWorker::start(
             scene,
@@ -425,10 +427,16 @@ impl RenderDelegate for CrystalRenderDelgate {
             colors_cpu,
             rx,
             render_test.text_console.get_sender(),
+            tx_sync,
         );
         render_test
             .script_env
             .subscribe(rad_worker.binding_tx.clone());
+
+        rx_sync.recv().unwrap(); // sync with thread startup (e.g., it has subscribed to script variables)
+        render_test
+            .script_env
+            .set("light_pos", self.light_pos.to_value());
 
         self.rad_worker = Some(rad_worker);
         render_test.set_player_input_sink(self.input_state.sink.clone());
@@ -606,13 +614,25 @@ impl RenderDelegate for CrystalRenderDelgate {
 }
 
 fn main() {
+    let matches = App::new("crystal_planes")
+        .version("1.0")
+        .about("Realime Radiosity test")
+        .arg(
+            Arg::with_name("timed")
+                .help("use time-based frame sync")
+                .long("timed"),
+        )
+        .get_matches();
+
+    let timed = matches.is_present("timed");
+
     unsafe {
         // don't need / want denormals -> flush to zero
         core::arch::x86_64::_MM_SET_FLUSH_ZERO_MODE(core::arch::x86_64::_MM_FLUSH_ZERO_ON);
     }
     let mut delegate = CrystalRenderDelgate::new();
 
-    render_bits::render_test(&mut delegate);
+    render_bits::render_test(&mut delegate, timed);
     delegate.shutdown();
 }
 

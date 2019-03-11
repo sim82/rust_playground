@@ -33,6 +33,7 @@ vulkano-shaders = "0.11.1"
 vulkano-win = "0.11.1"
 winit = "0.18"
 glyph_brush = "0.4"
+clap = "2.32"
 
 [build-dependencies]
 capnpc = {version = "0.9", optional = true }

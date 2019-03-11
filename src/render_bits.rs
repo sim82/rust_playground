@@ -353,10 +353,12 @@ pub struct RenderTest {
     pub text_console: TextConsole,
     pub script_env: script::Environment,
     input_multiplexer: ConsoleInputMultiplexer,
+
+    timed: bool,
 }
 
 impl RenderTest {
-    fn new() -> RenderTest {
+    fn new(timed: bool) -> RenderTest {
         let extensions = vulkano_win::required_extensions();
         let instance = Instance::new(None, &extensions, None).unwrap();
         let events_loop = winit::EventsLoop::new();
@@ -419,12 +421,19 @@ impl RenderTest {
             let mut format = caps.supported_formats[0].0;
             for (f, c) in caps.supported_formats.iter().cloned() {
                 if c == vulkano::swapchain::ColorSpace::SrgbNonLinear
-                    || f == vulkano::format::Format::B8G8R8A8Unorm
+                    && f == vulkano::format::Format::B8G8R8A8Unorm
                 {
                     format = f;
                 }
             }
+
             let alpha = caps.supported_composite_alpha.iter().next().unwrap();
+
+            let present_mode = if timed {
+                PresentMode::Immediate
+            } else {
+                PresentMode::Fifo
+            };
 
             Swapchain::new(
                 device.clone(),
@@ -437,7 +446,7 @@ impl RenderTest {
                 &queue,
                 SurfaceTransform::Identity,
                 alpha,
-                PresentMode::Fifo,
+                present_mode,
                 true,
                 None,
             )
@@ -486,6 +495,7 @@ impl RenderTest {
             text_console: text_console,
             input_multiplexer: ConsoleInputMultiplexer::new(),
             script_env: script::Environment::new(),
+            timed: timed,
         }
     }
 
@@ -555,7 +565,17 @@ impl RenderTest {
 
         let (script_line_sink, script_lines_source) = channel();
         self.text_console.set_input_line_sink(script_line_sink);
+
+        let mut last_frame_start = std::time::Instant::now();
+        let target_frame_time = std::time::Duration::from_micros(1000000 / 60);
         loop {
+            if self.timed {
+                let elapsed = last_frame_start.elapsed();
+                if elapsed < target_frame_time {
+                    std::thread::sleep(target_frame_time - elapsed);
+                }
+                last_frame_start = std::time::Instant::now();
+            }
             previous_frame.cleanup_finished();
 
             if recreate_swapchain {
@@ -768,8 +788,8 @@ pub trait RenderDelegate {
     ) -> Result<AutoCommandBufferBuilder, Error>;
 }
 
-pub fn render_test(delegate: &mut RenderDelegate) {
-    let mut render_test = RenderTest::new();
+pub fn render_test(delegate: &mut RenderDelegate, timed: bool) {
+    let mut render_test = RenderTest::new(timed);
     //let vertex_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), vertices).unwrap();
 
     render_test.main_loop(delegate);
