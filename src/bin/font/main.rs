@@ -98,7 +98,7 @@ fn main() {
     }
     let mut delegate = TestDelgate::new();
 
-    render_bits::render_test(&mut delegate);
+    render_bits::render_test(&mut delegate, false);
     delegate.shutdown();
 }
 

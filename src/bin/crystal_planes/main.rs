@@ -262,7 +262,7 @@ impl RadWorker {
                     scene.pints = 0;
 
                     println!("pint/s: {:e}", pintss);
-                    //tx_console.send(format!("bounces/s: {:e}", pintss));
+                    tx_console.send(format!("bounces/s: {:e}", pintss));
                     last_stat = Instant::now();
                 }
             }
