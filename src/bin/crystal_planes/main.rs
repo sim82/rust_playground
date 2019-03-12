@@ -31,7 +31,7 @@ use cgmath::{Matrix4, Rad, Vector3};
 use rand::prelude::*;
 use render_bits::Vertex;
 
-use clap::{App, Arg, SubCommand};
+use clap::{App, Arg};
 
 use std::sync::mpsc::{channel, sync_channel, Receiver, Sender};
 use std::thread::spawn;
@@ -622,9 +622,23 @@ fn main() {
                 .help("use time-based frame sync")
                 .long("timed"),
         )
+        .arg(
+            Arg::with_name("threads")
+                .help("set number of rayon threads")
+                .long("threads")
+                .takes_value(true),
+        )
         .get_matches();
 
     let timed = matches.is_present("timed");
+    if let Some(threads) = matches.value_of("threads") {
+        if let Ok(num_threads) = threads.parse::<usize>() {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(num_threads)
+                .build_global()
+                .unwrap();
+        }
+    }
 
     unsafe {
         // don't need / want denormals -> flush to zero
