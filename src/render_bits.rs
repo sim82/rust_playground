@@ -52,10 +52,24 @@ custom_error::custom_error! { pub Error
     BeginRenderPassError{ source : vulkano::command_buffer::BeginRenderPassError } = "begin render pass",
     DrawIndexedError{ source : vulkano::command_buffer::DrawIndexedError } = "draw indexed",
     BuildError{ source : vulkano::command_buffer::BuildError} = "build error",
+    CreationError{ source: vulkano_win::CreationError} = "creation error",
+    DeviceCreationError{ source: vulkano::device::DeviceCreationError} = "device creation error",
+    InstanceCreationError{ source: vulkano::instance::InstanceCreationError} = "instance creation error",
+    SwapchainCreationError{ source: vulkano::swapchain::SwapchainCreationError} = "swapchain creation error",
+    RenderPassCreationError{ source: vulkano::framebuffer::RenderPassCreationError} = "renderpass creation error",
+    AutoCommandBufferBuilderContextError{ source: vulkano::command_buffer::AutoCommandBufferBuilderContextError } = "commandbuffer builder context error",
+    CommandBufferExecError{ source : vulkano::command_buffer::CommandBufferExecError } = "command buffer exec error",
+    PersistentDescriptorSetError{ source: vulkano::descriptor::descriptor_set::PersistentDescriptorSetError} = "persistent descriptir set error",
+    PersistentDescriptorSetBuildError{ source: vulkano::descriptor::descriptor_set::PersistentDescriptorSetBuildError} = "persistent descriptir set build error",
+    OomError{ source: vulkano::OomError} = "vulkano oom error",
+
+    ChannelCommunicationError = "communication error on mpsc channel",
 
     NotInitialized = "Not initialized",
     NotImplemented = "Not implemented",
 }
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Copy, Clone)]
 pub struct Vertex {
@@ -191,9 +205,13 @@ impl PlayerFlyModel {
     }
     pub fn get_view_matrix(&self) -> Matrix4<f32> {
         // (self.get_rotation_lat(true) * self.get_rotation_lon(true) * self.get_translation(true)).invert().unwrap()
-        (self.get_translation() * self.get_rotation_lon() * self.get_rotation_lat())
-            .invert()
-            .unwrap()
+        if let Some(mat) =
+            (self.get_translation() * self.get_rotation_lon() * self.get_rotation_lat()).invert()
+        {
+            mat
+        } else {
+            <Matrix4<f32> as One>::one()
+        }
     }
     pub fn get_translation(&self) -> Matrix4<f32> {
         // Matrix4::from_translation( Point3::<f32>::to_vec(self.pos) )
@@ -252,7 +270,7 @@ impl InputStateEventDispatcher {
 }
 
 impl std::fmt::Debug for PlayerFlyModel {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
             "pos: [{} {} {}] rot: {:?} {:?}",
@@ -358,13 +376,12 @@ pub struct RenderTest {
 }
 
 impl RenderTest {
-    fn new(timed: bool) -> RenderTest {
+    fn new(timed: bool) -> Result<RenderTest> {
         let extensions = vulkano_win::required_extensions();
-        let instance = Instance::new(None, &extensions, None).unwrap();
+        let instance = Instance::new(None, &extensions, None)?;
         let events_loop = winit::EventsLoop::new();
-        let surface = winit::WindowBuilder::new()
-            .build_vk_surface(&events_loop, instance.clone())
-            .unwrap();
+        let surface =
+            winit::WindowBuilder::new().build_vk_surface(&events_loop, instance.clone())?;
 
         let dimensions = {
             let window = surface.window();
@@ -404,8 +421,7 @@ impl RenderTest {
                 physical.supported_features(),
                 &device_ext,
                 [(queue_family, 0.5)].iter().cloned(),
-            )
-            .unwrap()
+            )?
         };
         let queue = queues.next().unwrap();
         // let window = surface.window();
@@ -449,33 +465,29 @@ impl RenderTest {
                 present_mode,
                 true,
                 None,
-            )
-            .unwrap()
+            )?
         };
 
-        let render_pass = Arc::new(
-            vulkano::single_pass_renderpass!(device.clone(),
-                attachments: {
-                    color: {
-                        load: Clear,
-                        store: Store,
-                        format: swapchain.format(),
-                        samples: 1,
-                    },
-                    depth: {
-                        load: Clear,
-                        store: DontCare,
-                        format: Format::D32Sfloat,
-                        samples: 1,
-                    }
+        let render_pass = Arc::new(vulkano::single_pass_renderpass!(device.clone(),
+            attachments: {
+                color: {
+                    load: Clear,
+                    store: Store,
+                    format: swapchain.format(),
+                    samples: 1,
                 },
-                pass: {
-                    color: [color],
-                    depth_stencil: {depth}
+                depth: {
+                    load: Clear,
+                    store: DontCare,
+                    format: Format::D32Sfloat,
+                    samples: 1,
                 }
-            )
-            .unwrap(),
-        );
+            },
+            pass: {
+                color: [color],
+                depth_stencil: {depth}
+            }
+        )?);
 
         let vk_state = VulcanoState {
             device: device,
@@ -488,7 +500,7 @@ impl RenderTest {
 
         let text_console = TextConsole::new(&vk_state);
 
-        RenderTest {
+        Ok(RenderTest {
             vk_state: vk_state,
 
             events_loop: events_loop,
@@ -496,7 +508,7 @@ impl RenderTest {
             input_multiplexer: ConsoleInputMultiplexer::new(),
             script_env: script::Environment::new(),
             timed: timed,
-        }
+        })
     }
 
     fn window(&self) -> &Window {
@@ -552,7 +564,7 @@ impl RenderTest {
         framebuffers
     }
 
-    fn main_loop(&mut self, delegate: &mut dyn RenderDelegate) {
+    fn main_loop(&mut self, delegate: &mut dyn RenderDelegate) -> Result<()> {
         let framebuffers = self.window_size_dependent_setup();
         delegate.framebuffer_changed(&self.vk_state);
         // let mut pipeline = delegate.create_pipeline(&self);
@@ -611,15 +623,13 @@ impl RenderTest {
             let builder = AutoCommandBufferBuilder::primary_one_time_submit(
                 self.vk_state.device.clone(),
                 self.vk_state.queue.family(),
-            )
-            .unwrap()
+            )?
             // .update_buffer(colors_buffer_gpu.clone(), self.colors_cpu[..]).unwrap()
             .begin_render_pass(
                 framebuffers[image_num].clone(),
                 false,
                 vec![[0.0, 0.0, 1.0, 1.0].into(), 1f32.into()],
-            )
-            .unwrap();
+            )?;
 
             let builder = match delegate.render_frame(&self.vk_state, builder) {
                 Ok(builder) => builder,
@@ -630,14 +640,13 @@ impl RenderTest {
                 Ok(builder) => builder,
                 Err(error) => panic!("error: {}", error),
             };
-            let command_buffer = builder.end_render_pass().unwrap().build();
+            let command_buffer = builder.end_render_pass()?.build();
 
             if let Ok(command_buffer) = command_buffer {
                 let future = previous_frame
                     .join(update_fut)
                     .join(acquire_future)
-                    .then_execute(self.vk_state.queue.clone(), command_buffer)
-                    .unwrap()
+                    .then_execute(self.vk_state.queue.clone(), command_buffer)?
                     .then_swapchain_present(
                         self.vk_state.queue.clone(),
                         self.vk_state.swapchain.clone(),
@@ -735,12 +744,15 @@ impl RenderTest {
             for event in events {
                 // self.input_sinks
                 //     .drain_filter(|sink| sink.send(event.clone()).is_err());
-                self.input_multiplexer.sink.send(event).unwrap();
+                self.input_multiplexer
+                    .sink
+                    .send(event)
+                    .map_err(|_| Error::ChannelCommunicationError)?;
             }
             self.input_multiplexer.update();
 
             if done {
-                return;
+                return Ok(());
             }
         }
     }
@@ -785,12 +797,12 @@ pub trait RenderDelegate {
         &mut self,
         vk_state: &VulcanoState,
         builder: AutoCommandBufferBuilder,
-    ) -> Result<AutoCommandBufferBuilder, Error>;
+    ) -> Result<AutoCommandBufferBuilder>;
 }
 
-pub fn render_test(delegate: &mut RenderDelegate, timed: bool) {
-    let mut render_test = RenderTest::new(timed);
+pub fn render_test(delegate: &mut RenderDelegate, timed: bool) -> Result<()> {
+    let mut render_test = RenderTest::new(timed)?;
     //let vertex_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), vertices).unwrap();
 
-    render_test.main_loop(delegate);
+    render_test.main_loop(delegate)
 }

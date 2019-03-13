@@ -1,5 +1,6 @@
 use rust_playground::{crystal, render_bits, script};
 
+use render_bits::Error;
 use render_bits::PlayerFlyModel;
 use render_bits::RenderDelegate;
 use render_bits::RenderTest;
@@ -553,7 +554,7 @@ impl RenderDelegate for CrystalRenderDelgate {
         &mut self,
         vk_state: &VulcanoState,
         builder: AutoCommandBufferBuilder,
-    ) -> Result<AutoCommandBufferBuilder, render_bits::Error> {
+    ) -> render_bits::Result<AutoCommandBufferBuilder> {
         match (
             &self.vertex_buffer,
             // &self.colors_buffer,
@@ -592,10 +593,8 @@ impl RenderDelegate for CrystalRenderDelgate {
 
                 let set = Arc::new(
                     PersistentDescriptorSet::start(pipeline.clone(), 0)
-                        .add_buffer(uniform_buffer_subbuffer)
-                        .unwrap()
-                        .build()
-                        .unwrap(),
+                        .add_buffer(uniform_buffer_subbuffer)?
+                        .build()?,
                 );
 
                 Ok(builder.draw_indexed(
@@ -646,7 +645,7 @@ fn main() {
     }
     let mut delegate = CrystalRenderDelgate::new();
 
-    render_bits::render_test(&mut delegate, timed);
+    render_bits::render_test(&mut delegate, timed).unwrap();
     delegate.shutdown();
 }
 
