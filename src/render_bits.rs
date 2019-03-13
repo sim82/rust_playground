@@ -48,22 +48,9 @@ pub mod math;
 pub mod text_console;
 
 custom_error::custom_error! { pub Error
-
-    BeginRenderPassError{ source : vulkano::command_buffer::BeginRenderPassError } = "begin render pass",
-    DrawIndexedError{ source : vulkano::command_buffer::DrawIndexedError } = "draw indexed",
-    BuildError{ source : vulkano::command_buffer::BuildError} = "build error",
-    CreationError{ source: vulkano_win::CreationError} = "creation error",
-    DeviceCreationError{ source: vulkano::device::DeviceCreationError} = "device creation error",
-    InstanceCreationError{ source: vulkano::instance::InstanceCreationError} = "instance creation error",
-    SwapchainCreationError{ source: vulkano::swapchain::SwapchainCreationError} = "swapchain creation error",
-    RenderPassCreationError{ source: vulkano::framebuffer::RenderPassCreationError} = "renderpass creation error",
-    AutoCommandBufferBuilderContextError{ source: vulkano::command_buffer::AutoCommandBufferBuilderContextError } = "commandbuffer builder context error",
-    CommandBufferExecError{ source : vulkano::command_buffer::CommandBufferExecError } = "command buffer exec error",
-    PersistentDescriptorSetError{ source: vulkano::descriptor::descriptor_set::PersistentDescriptorSetError} = "persistent descriptir set error",
-    PersistentDescriptorSetBuildError{ source: vulkano::descriptor::descriptor_set::PersistentDescriptorSetBuildError} = "persistent descriptir set build error",
-    OomError{ source: vulkano::OomError} = "vulkano oom error",
-
     ChannelCommunicationError = "communication error on mpsc channel",
+
+    UnhandledVulkanoError{ error: String } = "unhandled vulkano error {error}",
 
     NotInitialized = "Not initialized",
     NotImplemented = "Not implemented",
@@ -378,10 +365,17 @@ pub struct RenderTest {
 impl RenderTest {
     fn new(timed: bool) -> Result<RenderTest> {
         let extensions = vulkano_win::required_extensions();
-        let instance = Instance::new(None, &extensions, None)?;
+        let instance =
+            Instance::new(None, &extensions, None).map_err(|_| Error::UnhandledVulkanoError {
+                error: "Instance::new failed".into(),
+            })?;
+
         let events_loop = winit::EventsLoop::new();
-        let surface =
-            winit::WindowBuilder::new().build_vk_surface(&events_loop, instance.clone())?;
+        let surface = winit::WindowBuilder::new()
+            .build_vk_surface(&events_loop, instance.clone())
+            .map_err(|_| Error::UnhandledVulkanoError {
+                error: "failed to build vk surface".into(),
+            })?;
 
         let dimensions = {
             let window = surface.window();
@@ -421,7 +415,10 @@ impl RenderTest {
                 physical.supported_features(),
                 &device_ext,
                 [(queue_family, 0.5)].iter().cloned(),
-            )?
+            )
+            .map_err(|_| Error::UnhandledVulkanoError {
+                error: "Device::new failed".into(),
+            })?
         };
         let queue = queues.next().unwrap();
         // let window = surface.window();
@@ -465,29 +462,37 @@ impl RenderTest {
                 present_mode,
                 true,
                 None,
-            )?
+            )
+            .map_err(|_| Error::UnhandledVulkanoError {
+                error: "Swapchain::new failed".into(),
+            })?
         };
 
-        let render_pass = Arc::new(vulkano::single_pass_renderpass!(device.clone(),
-            attachments: {
-                color: {
-                    load: Clear,
-                    store: Store,
-                    format: swapchain.format(),
-                    samples: 1,
+        let render_pass = Arc::new(
+            vulkano::single_pass_renderpass!(device.clone(),
+                attachments: {
+                    color: {
+                        load: Clear,
+                        store: Store,
+                        format: swapchain.format(),
+                        samples: 1,
+                    },
+                    depth: {
+                        load: Clear,
+                        store: DontCare,
+                        format: Format::D32Sfloat,
+                        samples: 1,
+                    }
                 },
-                depth: {
-                    load: Clear,
-                    store: DontCare,
-                    format: Format::D32Sfloat,
-                    samples: 1,
+                pass: {
+                    color: [color],
+                    depth_stencil: {depth}
                 }
-            },
-            pass: {
-                color: [color],
-                depth_stencil: {depth}
-            }
-        )?);
+            )
+            .map_err(|_| Error::UnhandledVulkanoError {
+                error: "failed to create single pass render pass".into(),
+            })?,
+        );
 
         let vk_state = VulcanoState {
             device: device,
@@ -623,13 +628,19 @@ impl RenderTest {
             let builder = AutoCommandBufferBuilder::primary_one_time_submit(
                 self.vk_state.device.clone(),
                 self.vk_state.queue.family(),
-            )?
+            )
+            .map_err(|_| Error::UnhandledVulkanoError {
+                error: "failed to create auto command buffer buidlder in mainloop".into(),
+            })?
             // .update_buffer(colors_buffer_gpu.clone(), self.colors_cpu[..]).unwrap()
             .begin_render_pass(
                 framebuffers[image_num].clone(),
                 false,
                 vec![[0.0, 0.0, 1.0, 1.0].into(), 1f32.into()],
-            )?;
+            )
+            .map_err(|_| Error::UnhandledVulkanoError {
+                error: "failed begin render pass in mainloop".into(),
+            })?;
 
             let builder = match delegate.render_frame(&self.vk_state, builder) {
                 Ok(builder) => builder,
@@ -640,13 +651,21 @@ impl RenderTest {
                 Ok(builder) => builder,
                 Err(error) => panic!("error: {}", error),
             };
-            let command_buffer = builder.end_render_pass()?.build();
+            let command_buffer = builder
+                .end_render_pass()
+                .map_err(|_| Error::UnhandledVulkanoError {
+                    error: "failed end render pass in mainloop".into(),
+                })?
+                .build();
 
             if let Ok(command_buffer) = command_buffer {
                 let future = previous_frame
                     .join(update_fut)
                     .join(acquire_future)
-                    .then_execute(self.vk_state.queue.clone(), command_buffer)?
+                    .then_execute(self.vk_state.queue.clone(), command_buffer)
+                    .map_err(|_| Error::UnhandledVulkanoError {
+                        error: "failed to execute render command buffer in mainloop".into(),
+                    })?
                     .then_swapchain_present(
                         self.vk_state.queue.clone(),
                         self.vk_state.swapchain.clone(),

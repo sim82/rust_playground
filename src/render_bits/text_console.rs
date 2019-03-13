@@ -457,21 +457,31 @@ impl TextConsole {
             let set = Arc::new(
                 PersistentDescriptorSet::start(pipeline.clone(), 0)
                     .add_buffer(uniform_buffer_subbuffer)
-                    .unwrap()
+                    .map_err(|_| render_bits::Error::UnhandledVulkanoError {
+                        error: "failed to add buffer to descriptor set".into(),
+                    })?
                     .add_sampled_image(glyph_image.clone(), self.sampler.clone())
-                    .unwrap()
+                    .map_err(|_| render_bits::Error::UnhandledVulkanoError {
+                        error: "failed to add sampled image to descriptor set".into(),
+                    })?
                     .build()
-                    .unwrap(),
+                    .map_err(|_| render_bits::Error::UnhandledVulkanoError {
+                        error: "failed to build descriptor set".into(),
+                    })?,
             );
 
-            Ok(builder.draw_indexed(
-                pipeline.clone(),
-                &DynamicState::none(),
-                vec![buffers.vb.clone(), buffers.tb.clone()],
-                buffers.ib.clone(),
-                set.clone(),
-                (),
-            )?)
+            Ok(builder
+                .draw_indexed(
+                    pipeline.clone(),
+                    &DynamicState::none(),
+                    vec![buffers.vb.clone(), buffers.tb.clone()],
+                    buffers.ib.clone(),
+                    set.clone(),
+                    (),
+                )
+                .map_err(|_| render_bits::Error::UnhandledVulkanoError {
+                    error: "draw indexed failed in TextConsole".into(),
+                })?)
         } else {
             Ok(builder)
         }

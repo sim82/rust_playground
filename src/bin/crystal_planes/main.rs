@@ -593,18 +593,28 @@ impl RenderDelegate for CrystalRenderDelgate {
 
                 let set = Arc::new(
                     PersistentDescriptorSet::start(pipeline.clone(), 0)
-                        .add_buffer(uniform_buffer_subbuffer)?
-                        .build()?,
+                        .add_buffer(uniform_buffer_subbuffer)
+                        .map_err(|_| Error::UnhandledVulkanoError {
+                            error: "failed to add buffer to descriptor set".into(),
+                        })?
+                        .build()
+                        .map_err(|_| Error::UnhandledVulkanoError {
+                            error: "failed to build descriptor set".into(),
+                        })?,
                 );
 
-                Ok(builder.draw_indexed(
-                    pipeline.clone(),
-                    &DynamicState::none(),
-                    vec![vertex_buffer.clone(), colors_buffer_gpu.clone()],
-                    index_buffer.clone(),
-                    set.clone(),
-                    (),
-                )?)
+                Ok(builder
+                    .draw_indexed(
+                        pipeline.clone(),
+                        &DynamicState::none(),
+                        vec![vertex_buffer.clone(), colors_buffer_gpu.clone()],
+                        index_buffer.clone(),
+                        set.clone(),
+                        (),
+                    )
+                    .map_err(|_| render_bits::Error::UnhandledVulkanoError {
+                        error: "draw indexed failed for crystal planes".into(),
+                    })?)
             }
 
             _ => Ok(builder),
