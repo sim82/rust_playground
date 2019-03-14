@@ -271,14 +271,18 @@ impl RenderDelegate for TestDelgate {
                         .unwrap(),
                 );
 
-                Ok(builder.draw_indexed(
-                    pipeline.clone(),
-                    &DynamicState::none(),
-                    vec![vertex_buffer.clone(), colors_buffer_gpu.clone()],
-                    index_buffer.clone(),
-                    set.clone(),
-                    (),
-                )?)
+                Ok(builder
+                    .draw_indexed(
+                        pipeline.clone(),
+                        &DynamicState::none(),
+                        vec![vertex_buffer.clone(), colors_buffer_gpu.clone()],
+                        index_buffer.clone(),
+                        set.clone(),
+                        (),
+                    )
+                    .map_err(|_| render_bits::Error::UnhandledVulkanoError {
+                        error: "draw indexed failed for crystal planes".into(),
+                    })?)
             }
 
             _ => {
