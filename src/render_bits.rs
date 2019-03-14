@@ -781,25 +781,37 @@ impl RenderTest {
     }
 }
 
+// fn get_completion_query(template: &String) -> CompletionQuery {
+//     let tokens = template.split_whitespace().collect::<Vec<_>>();
+
+//     if tokens.len() == 2 && tokens[0] == "set" {
+//         CompletionQuery::Variable(tokens[1].into())
+//     } else {
+//         CompletionQuery::None
+//     }
+// }
+
 impl text_console::CompletionProvider for script::Environment {
-    fn complete(&self, template: text_console::CompletionQuery) -> Vec<String> {
-        let mut completions = Vec::new();
-        match template {
-            text_console::CompletionQuery::Variable(name) => {
-                for (key, _) in &self.variables {
-                    if key.len() < name.len() {
-                        continue;
-                    }
+    fn complete(&self, template: &str) -> Vec<String> {
+        // let mut completions = Vec::new();
+        // match template {
+        //     text_console::CompletionQuery::Variable(name) => {
+        //         for (key, _) in &self.variables {
+        //             if key.len() < name.len() {
+        //                 continue;
+        //             }
 
-                    if key[..name.len()] == name {
-                        completions.push(key.clone());
-                    }
-                }
-            }
-            _ => (),
-        }
+        //             if key[..name.len()] == name {
+        //                 completions.push(key.clone());
+        //             }
+        //         }
+        //     }
+        //     _ => (),
+        // }
 
-        completions
+        // completions
+        script::complete(template, self)
+        //        vec![template.into()]
     }
 }
 

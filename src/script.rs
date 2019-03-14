@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::mpsc::{Receiver, Sender};
@@ -249,12 +249,78 @@ impl Environment {
     }
 }
 
-pub fn parse(line: &str, env: &mut Environment) {
-    let token = line.split_whitespace().collect::<Vec<_>>();
+pub enum ScriptToken {
+    Set,
+    Get,
+    Variable(String),
+    Value(String),
+}
 
-    if token.len() >= 3 && token[0] == "set" {
-        env.set(token[1], token[2].to_value())
-    } else if token.len() >= 2 && token[0] == "print" {
-        println!("{}: {}", token[1], env.get(token[1]));
+pub enum CompletionQuery {
+    None,
+    Variable(String),
+}
+// pub struct CompletionDesc(CompletionQuery, usize);
+
+pub fn tokenize(line: &str) -> Option<VecDeque<ScriptToken>> {
+    let mut out = VecDeque::new();
+    let mut tokens = line.split_whitespace().collect::<VecDeque<_>>();
+    if tokens.is_empty() {
+        return None;
     }
+
+    let token = tokens.pop_front().unwrap();
+    if token == "set" {
+        out.push_back(ScriptToken::Set);
+
+        if !tokens.is_empty() {
+            out.push_back(ScriptToken::Variable(tokens.pop_front().unwrap().into()));
+
+            if !tokens.is_empty() {
+                out.push_back(ScriptToken::Value(tokens.pop_front().unwrap().into()));
+            }
+        }
+    } else if token == "get" {
+        out.push_back(ScriptToken::Get);
+
+        if !tokens.is_empty() {
+            out.push_back(ScriptToken::Variable(tokens.pop_front().unwrap().into()));
+        }
+    }
+
+    Some(out)
+}
+
+pub fn parse(line: &str, env: &mut Environment) {
+    // let token = line.split_whitespace().collect::<Vec<_>>();
+
+    // if token.len() >= 3 && token[0] == "set" {
+    //     env.set(token[1], token[2].to_value())
+    // } else if token.len() >= 2 && token[0] == "print" {
+    //     println!("{}: {}", token[1], env.get(token[1]));
+    // }
+
+    let mut tokens = tokenize(line);
+
+    if tokens.is_none() {
+        return;
+    }
+    let mut tokens = tokens.unwrap();
+
+    match tokens.pop_front() {
+        Some(ScriptToken::Set) => match tokens.pop_front() {
+            Some(ScriptToken::Variable(variable)) => match tokens.pop_front() {
+                Some(ScriptToken::Value(value)) => {
+                    env.set(&variable, value.to_value());
+                }
+                _ => (),
+            },
+            _ => (),
+        },
+        _ => (),
+    }
+}
+
+pub fn complete(line: &str, env: &Environment) -> Vec<String> {
+    vec![line.into()]
 }

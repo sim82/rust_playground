@@ -49,13 +49,8 @@ impl Canvas for (&mut [u8], (u32, u32)) {
     }
 }
 
-pub enum CompletionQuery {
-    None,
-    Variable(String),
-}
-
 pub trait CompletionProvider {
-    fn complete(&self, template: CompletionQuery) -> Vec<String>;
+    fn complete(&self, template: &str) -> Vec<String>;
 }
 
 type GlyphVertexData = (
@@ -221,12 +216,20 @@ impl TextConsole {
                                 self.input_line.clear();
                             }
                             winit::VirtualKeyCode::Tab => {
-                                let completions =
-                                    completion_provider.complete(self.get_completion_query());
+                                let completions = completion_provider.complete(&self.input_line);
 
-                                for comp in completions {
-                                    self.add_line(&comp);
+                                if completions.len() == 1 {
+                                    self.input_line = completions[0].clone();
                                 }
+
+                                // let completion_query = self.get_completion_query();
+                                // let completions = completion_provider.complete(completion_query);
+
+                                // if completions.len() == 1 {}
+
+                                // for comp in completions {
+                                //     self.add_line(&comp);
+                                // }
                             }
                             _ => (),
                         }
@@ -497,16 +500,6 @@ impl TextConsole {
 
     pub fn set_input_line_sink(&mut self, sink: Sender<String>) {
         self.input_line_sink = Some(sink);
-    }
-
-    fn get_completion_query(&self) -> CompletionQuery {
-        let tokens = self.input_line.split_whitespace().collect::<Vec<_>>();
-
-        if tokens.len() == 2 && tokens[0] == "set" {
-            CompletionQuery::Variable(tokens[1].into())
-        } else {
-            CompletionQuery::None
-        }
     }
 }
 
