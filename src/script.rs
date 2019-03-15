@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
@@ -156,7 +157,6 @@ pub struct BindingDispatcher {
     rx: Receiver<BindingAction>,
 
     callbacks: HashMap<String, Box<FnMut(String, Value, Option<Value>)>>,
-    // i32_bindings: HashMap<String, Rc<RefCell<i32>>>,
     value_bindings: HashMap<String, Rc<RefCell<ValueWatch>>>,
 }
 
@@ -177,9 +177,6 @@ impl BindingDispatcher {
     ) {
         self.callbacks.insert(name.into(), Box::new(c));
     }
-    // pub fn bind_i32(&mut self, name: &str, i: Rc<RefCell<i32>>) {
-    //     self.i32_bindings.insert(name.into(), i);
-    // }
 
     pub fn bind_value(&mut self, name: &str, v: Rc<RefCell<ValueWatch>>) {
         self.value_bindings.insert(name.into(), v);
@@ -192,12 +189,6 @@ impl BindingDispatcher {
                         Some(cb) => (*cb)(name.clone(), value.clone(), old),
                         _ => (),
                     }
-                    // match self.i32_bindings.get_mut(&name) {
-                    //     Some(binding) => {
-                    //         binding.replace(value.parse::<i32>().unwrap());
-                    //     }
-                    //     _ => (),
-                    // }
 
                     match self.value_bindings.get_mut(&name) {
                         Some(binding) => {
@@ -228,12 +219,6 @@ impl Environment {
         }
     }
 
-    // pub fn set(&mut self, name: &str, value: &str) {
-    //     let old = self.variables.insert(name.into(), value.into());
-
-    //     self.send_all(BindingAction::Update(name.into(), value.into(), old));
-    // }
-
     pub fn set(&mut self, name: &str, v: Value) {
         let old = self.variables.insert(name.into(), v.clone());
         self.send_all(BindingAction::Update(name.into(), v.clone(), old));
@@ -249,9 +234,9 @@ impl Environment {
     }
 }
 
+#[derive(Clone)]
 pub enum ScriptToken {
-    Set,
-    Get,
+    Command(String),
     Variable(String),
     Value(String),
 }
@@ -271,7 +256,7 @@ pub fn tokenize(line: &str) -> Option<VecDeque<ScriptToken>> {
 
     let token = tokens.pop_front().unwrap();
     if token == "set" {
-        out.push_back(ScriptToken::Set);
+        out.push_back(ScriptToken::Command("set".into()));
 
         if !tokens.is_empty() {
             out.push_back(ScriptToken::Variable(tokens.pop_front().unwrap().into()));
@@ -281,34 +266,28 @@ pub fn tokenize(line: &str) -> Option<VecDeque<ScriptToken>> {
             }
         }
     } else if token == "get" {
-        out.push_back(ScriptToken::Get);
+        out.push_back(ScriptToken::Command("get".into()));
 
         if !tokens.is_empty() {
             out.push_back(ScriptToken::Variable(tokens.pop_front().unwrap().into()));
         }
+    } else {
+        out.push_back(ScriptToken::Command(token.into()));
     }
 
     Some(out)
 }
 
 pub fn parse(line: &str, env: &mut Environment) {
-    // let token = line.split_whitespace().collect::<Vec<_>>();
-
-    // if token.len() >= 3 && token[0] == "set" {
-    //     env.set(token[1], token[2].to_value())
-    // } else if token.len() >= 2 && token[0] == "print" {
-    //     println!("{}: {}", token[1], env.get(token[1]));
-    // }
-
-    let mut tokens = tokenize(line);
+    let tokens = tokenize(line);
 
     if tokens.is_none() {
         return;
     }
     let mut tokens = tokens.unwrap();
 
-    match tokens.pop_front() {
-        Some(ScriptToken::Set) => match tokens.pop_front() {
+    match tokens.pop_front().as_ref() {
+        Some(ScriptToken::Command(cmd)) if cmd == "set" => match tokens.pop_front() {
             Some(ScriptToken::Variable(variable)) => match tokens.pop_front() {
                 Some(ScriptToken::Value(value)) => {
                     env.set(&variable, value.to_value());
@@ -321,6 +300,64 @@ pub fn parse(line: &str, env: &mut Environment) {
     }
 }
 
+pub fn complete_generic<'a, I: Iterator<Item = String>>(token: &str, candidates: I) -> Vec<String> {
+    let mut completions = Vec::new();
+
+    for key in candidates.map(|x| x.to_string()) {
+        if key.len() < token.len() {
+            continue;
+        }
+
+        if key[..token.len()] == *token {
+            completions.push(key.clone());
+        }
+    }
+
+    completions
+}
+
+pub fn produce(tokens: Vec<ScriptToken>) -> String {
+    tokens
+        .iter()
+        .map(|token| match token {
+            ScriptToken::Command(cmd) => cmd,
+            ScriptToken::Variable(var) => var,
+            ScriptToken::Value(val) => val,
+        })
+        .join(" ")
+}
+
 pub fn complete(line: &str, env: &Environment) -> Vec<String> {
-    vec![line.into()]
+    if let Some(mut tokens) = tokenize(line) {
+        let completed = match tokens.back() {
+            Some(ScriptToken::Command(cmd)) => {
+                complete_generic(cmd, vec!["set", "get"].iter().map(|x| x.to_string()))
+                    .iter()
+                    .map(|x| ScriptToken::Command(x.to_string()))
+                    .collect()
+            }
+
+            Some(ScriptToken::Variable(var)) => {
+                complete_generic(var, env.variables.keys().map(|x| x.to_string()))
+                    .iter()
+                    .map(|x| ScriptToken::Command(x.to_string()))
+                    .collect()
+            }
+            Some(ScriptToken::Value(val)) => vec![ScriptToken::Value(val.to_string())],
+            None => panic!("meeeeep"),
+        };
+
+        tokens.pop_back();
+        completed
+            .iter()
+            .map(|comp| {
+                let mut tokens = tokens.clone();
+                tokens.push_back(comp.clone());
+
+                produce(tokens.into())
+            })
+            .collect()
+    } else {
+        vec![line.into()]
+    }
 }

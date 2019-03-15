@@ -96,6 +96,31 @@ pub struct TextConsole {
     history_line: String,
 }
 
+fn longest_common_prefix(strings: &Vec<String>) -> String {
+    if strings.is_empty() {
+        return "".to_string();
+    }
+
+    if strings.len() == 1 {
+        return strings[0].to_string();
+    }
+    if let Some(min_len) = strings.iter().map(|x| x.len()).min() {
+        for i in 0..min_len {
+            if strings
+                .iter()
+                .map(|x| x[i..i + 1].to_string())
+                .collect::<std::collections::HashSet<String>>()
+                .len()
+                != 1
+            {
+                return strings[0][..i].to_string();
+            }
+        }
+    }
+
+    "".to_string()
+}
+
 impl TextConsole {
     pub fn new(vk_state: &VulcanoState) -> Self {
         let (tx, rx) = channel();
@@ -219,17 +244,22 @@ impl TextConsole {
                                 let completions = completion_provider.complete(&self.input_line);
 
                                 if completions.len() == 1 {
-                                    self.input_line = completions[0].clone();
+                                    self.input_line = completions[0].clone() + " ";
+                                } else if completions.len() > 1 {
+                                    for comp in &completions {
+                                        self.add_line(comp);
+                                    }
+                                    self.input_line = longest_common_prefix(&completions);
                                 }
+
+                                // if completions.len() == 1 {
+                                //     self.input_line = completions[0].clone();
+                                // }
 
                                 // let completion_query = self.get_completion_query();
                                 // let completions = completion_provider.complete(completion_query);
 
                                 // if completions.len() == 1 {}
-
-                                // for comp in completions {
-                                //     self.add_line(&comp);
-                                // }
                             }
                             _ => (),
                         }
