@@ -1,4 +1,5 @@
 use itertools::Itertools;
+use log;
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
@@ -294,6 +295,12 @@ pub fn parse(line: &str, env: &mut Environment) {
                 }
                 _ => (),
             },
+            _ => (),
+        },
+        Some(ScriptToken::Command(cmd)) if cmd == "get" => match tokens.pop_front() {
+            Some(ScriptToken::Variable(variable)) => {
+                log::info!("{} = {}", variable, env.get(&variable))
+            }
             _ => (),
         },
         _ => (),

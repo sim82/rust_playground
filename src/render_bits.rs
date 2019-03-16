@@ -17,7 +17,7 @@ extern crate vulkano_shaders;
 extern crate vulkano_win;
 extern crate winit;
 
-use crate::render_bits::text_console::TextConsole;
+use crate::render_bits::text_console::{TextConsole, TextConsoleLog};
 use crate::script;
 use custom_error;
 use vulkano::command_buffer::AutoCommandBufferBuilder;
@@ -40,12 +40,15 @@ use winit::Window;
 use cgmath::prelude::*;
 use cgmath::{Deg, Matrix4, Point3, Vector4};
 
-use std::cell::RefCell;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
 pub mod math;
 pub mod text_console;
+
+lazy_static! {
+    pub static ref LOGGER: TextConsoleLog = TextConsoleLog::empty();
+}
 
 custom_error::custom_error! { pub Error
     ChannelCommunicationError = "communication error on mpsc channel",
@@ -504,6 +507,11 @@ impl RenderTest {
         };
 
         let text_console = TextConsole::new(&vk_state);
+
+        LOGGER.set_sink(text_console.get_sender());
+        log::set_logger(&*LOGGER)
+            .map(|()| log::set_max_level(log::LevelFilter::Info))
+            .unwrap();
 
         Ok(RenderTest {
             vk_state: vk_state,

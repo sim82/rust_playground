@@ -1,5 +1,6 @@
 use crate::render_bits;
-use crate::render_bits::{InputEvent, RenderTest, TexCoord, Vertex, VulcanoState};
+use crate::render_bits::{InputEvent, TexCoord, Vertex, VulcanoState};
+use log::Log;
 use vulkano::buffer::{cpu_pool::CpuBufferPoolChunk, BufferUsage, CpuBufferPool};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
@@ -17,8 +18,8 @@ use std::sync::Arc;
 
 use glyph_brush::{rusttype, BrushAction, BrushError, GlyphBrush, GlyphBrushBuilder, Section};
 use image::ImageBuffer;
-use itertools::chain;
-use std::sync::mpsc::{channel, Receiver, Sender};
+
+use std::sync::mpsc::{channel, sync_channel, Receiver, Sender, SyncSender};
 
 #[derive(Copy, Clone)]
 pub struct Color {
@@ -212,7 +213,11 @@ impl TextConsole {
     pub fn receive_input(&mut self, completion_provider: &CompletionProvider) {
         loop {
             match self.rx.try_recv() {
-                Ok(string) => self.add_line(&string),
+                Ok(string) => {
+                    for line in string.lines() {
+                        self.add_line(line)
+                    }
+                }
                 _ => break,
             }
         }
@@ -531,6 +536,67 @@ impl TextConsole {
     pub fn set_input_line_sink(&mut self, sink: Sender<String>) {
         self.input_line_sink = Some(sink);
     }
+}
+
+pub struct TextConsoleLog {
+    // the Mutex/RefCell/Option construct is only necessary to support setting sink on a TextConsoleLog with 'static lifetime...
+    // otherwise a plain SyncSender would be sufficient
+    pub sink: std::sync::Mutex<std::cell::RefCell<Option<Sender<String>>>>,
+}
+impl TextConsoleLog {
+    pub fn empty() -> TextConsoleLog {
+        TextConsoleLog {
+            sink: std::sync::Mutex::new(std::cell::RefCell::new(None)),
+        }
+    }
+
+    pub fn set_sink(&self, new_sink: Sender<String>) {
+        if let Ok(sink_lock) = self.sink.lock() {
+            *sink_lock.borrow_mut() = Some(new_sink);
+        }
+    }
+}
+impl Log for TextConsoleLog {
+    fn enabled(&self, _metadata: &log::Metadata) -> bool {
+        true
+    }
+
+    fn log(&self, record: &log::Record) {
+        if !self.enabled(record.metadata()) {
+            return;
+        }
+
+        let mut fallback = true;
+        if let Ok(sink_lock) = self.sink.lock() {
+            if let Some(ref sink) = *sink_lock.borrow() {
+                let msg = match record.level() {
+                    log::Level::Info | log::Level::Trace | log::Level::Debug => {
+                        format!("{}", record.args())
+                    }
+                    log::Level::Warn => format!("{} -- {}", record.level(), record.args()),
+                    log::Level::Error => match (record.file(), record.line()) {
+                        (Some(file), Some(line)) => {
+                            format!("{} {}:{} -- {}", record.level(), file, line, record.args())
+                        }
+                        _ => format!("{} -- {}", record.level(), record.args()),
+                    },
+                };
+
+                match sink.send(msg) {
+                    Err(_) => fallback = true,
+                    _ => fallback = false,
+                };
+            }
+            // discard sink on send error
+            if fallback {
+                *sink_lock.borrow_mut() = None;
+            }
+        }
+        if fallback {
+            println!("{}", record.args())
+        }
+    }
+    fn flush(&self) {}
 }
 
 pub mod vs {

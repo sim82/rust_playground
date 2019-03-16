@@ -4,6 +4,8 @@
 extern crate serde_derive;
 #[macro_use]
 extern crate itertools;
+#[macro_use]
+extern crate lazy_static;
 
 #[cfg(feature = "capnp_bits")]
 pub mod capnp_bits;

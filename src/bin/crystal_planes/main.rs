@@ -34,7 +34,7 @@ use render_bits::Vertex;
 
 use clap::{App, Arg};
 
-use std::sync::mpsc::{channel, sync_channel, Receiver, Sender};
+use std::sync::mpsc::{channel, sync_channel, Receiver, Sender, SyncSender};
 use std::thread::spawn;
 use std::thread::JoinHandle;
 
@@ -90,7 +90,6 @@ impl RadWorker {
         colors_buffer_pool: CpuBufferPool<Color>,
         mut colors_cpu: Vec<Color>,
         rx_event: Receiver<GameEvent>,
-        tx_console: Sender<String>,
         tx_sync: Sender<()>,
     ) -> RadWorker {
         let (tx, rx) = sync_channel(2);
@@ -263,7 +262,7 @@ impl RadWorker {
                     scene.pints = 0;
 
                     println!("pint/s: {:e}", pintss);
-                    tx_console.send(format!("bounces/s: {:e}", pintss));
+                    log::info!("bounces/s: {:e}", pintss);
                     last_stat = Instant::now();
                 }
             }
@@ -422,14 +421,7 @@ impl RenderDelegate for CrystalRenderDelgate {
 
         let (tx_sync, rx_sync) = channel(); // used as semaphore to sync with thread start
 
-        let rad_worker = RadWorker::start(
-            scene,
-            colors_buffer_pool,
-            colors_cpu,
-            rx,
-            render_test.text_console.get_sender(),
-            tx_sync,
-        );
+        let rad_worker = RadWorker::start(scene, colors_buffer_pool, colors_cpu, rx, tx_sync);
         render_test
             .script_env
             .subscribe(rad_worker.binding_tx.clone());
