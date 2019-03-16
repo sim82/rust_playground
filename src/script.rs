@@ -6,6 +6,13 @@ use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::mpsc::{Receiver, Sender};
 
+pub enum ScriptError {
+    ParseError(String),
+    UnknownVariable(String),
+}
+
+pub type ScriptResult<T> = Result<T, ScriptError>;
+
 #[derive(Default, Clone)]
 pub struct Value {
     v: String,
@@ -213,11 +220,8 @@ impl Environment {
         }
     }
 
-    pub fn get(&self, str: &str) -> Value {
-        match self.variables.get(str) {
-            Some(v) => v.clone(),
-            None => Value::new_internal(""),
-        }
+    pub fn get(&self, str: &str) -> Option<Value> {
+        self.variables.get(str).map(|x| x.clone())
     }
 
     pub fn set(&mut self, name: &str, v: Value) {
@@ -279,11 +283,11 @@ pub fn tokenize(line: &str) -> Option<VecDeque<ScriptToken>> {
     Some(out)
 }
 
-pub fn parse(line: &str, env: &mut Environment) {
+pub fn parse_internal(line: &str, env: &mut Environment) -> ScriptResult<()> {
     let tokens = tokenize(line);
 
     if tokens.is_none() {
-        return;
+        return Err(ScriptError::ParseError("not tokens".into()));
     }
     let mut tokens = tokens.unwrap();
 
@@ -292,19 +296,30 @@ pub fn parse(line: &str, env: &mut Environment) {
             Some(ScriptToken::Variable(variable)) => match tokens.pop_front() {
                 Some(ScriptToken::Value(value)) => {
                     env.set(&variable, value.to_value());
+                    Ok(())
                 }
-                _ => (),
+                _ => Err(ScriptError::ParseError(format!("expected value"))),
             },
-            _ => (),
+            _ => Err(ScriptError::ParseError("expected varable".into())),
         },
         Some(ScriptToken::Command(cmd)) if cmd == "get" => match tokens.pop_front() {
-            Some(ScriptToken::Variable(variable)) => {
-                log::info!("{} = {}", variable, env.get(&variable))
-            }
-            _ => (),
+            Some(ScriptToken::Variable(variable)) => env
+                .get(&variable)
+                .map_or(Err(ScriptError::UnknownVariable(variable.clone())), |val| {
+                    Ok(log::info!("{} = {}", &variable, val))
+                }),
+            _ => Err(ScriptError::ParseError("expected variable".into())),
         },
-        _ => (),
+        _ => Err(ScriptError::ParseError("expected command".into())),
     }
+}
+
+pub fn parse(line: &str, env: &mut Environment) {
+    match parse_internal(line, env) {
+        Err(ScriptError::ParseError(msg)) => log::warn!("parse error: {}", msg),
+        Err(ScriptError::UnknownVariable(var)) => log::warn!("unknown variable: {}", var),
+        Ok(()) => (),
+    };
 }
 
 pub fn complete_generic<'a, I: Iterator<Item = String>>(token: &str, candidates: I) -> Vec<String> {
