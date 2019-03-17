@@ -43,6 +43,7 @@ use cgmath::{Deg, Matrix4, Point3, Vector4};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
+pub mod frame;
 pub mod math;
 pub mod text_console;
 
@@ -649,6 +650,13 @@ impl RenderTest {
             .map_err(|_| Error::UnhandledVulkanoError {
                 error: "failed begin render pass in mainloop".into(),
             })?;
+
+            // let builder1 = AutoCommandBufferBuilder::secondary_graphics_one_time_submit(
+            //     self.vk_state.device.clone(),
+            //     self.vk_state.queue.family(),
+            //     Subpass::from(
+            // )
+            // .unwrap();
 
             let builder = match delegate.render_frame(&self.vk_state, builder) {
                 Ok(builder) => builder,
