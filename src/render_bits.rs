@@ -45,7 +45,7 @@ use std::sync::Arc;
 
 pub mod frame;
 pub mod math;
-pub mod render_test2;
+// pub mod render_test2;
 pub mod text_console;
 
 lazy_static! {
@@ -334,14 +334,15 @@ impl ConsoleInputMultiplexer {
     }
 }
 
+#[derive(Clone)]
 pub struct VulcanoState {
-    pub surface: Arc<vulkano::swapchain::Surface<Window>>,
-    pub device: Arc<Device>,
-    pub queue: Arc<vulkano::device::Queue>,
+    surface: Arc<vulkano::swapchain::Surface<Window>>,
+    device: Arc<Device>,
+    queue: Arc<vulkano::device::Queue>,
 
     swapchain: Arc<Swapchain<Window>>,
     images: Vec<Arc<SwapchainImage<Window>>>,
-    pub render_pass: Arc<RenderPassAbstract + Send + Sync>,
+    render_pass: Arc<RenderPassAbstract + Send + Sync>,
 }
 
 impl VulcanoState {
@@ -354,21 +355,35 @@ impl VulcanoState {
             panic!("panic")
         }
     }
+
+    pub fn queue(&self) -> Arc<vulkano::device::Queue> {
+        self.queue.clone()
+    }
+
+    pub fn device(&self) -> Arc<Device> {
+        self.queue.device().clone()
+    }
+
+    pub fn main_subpass(
+        &self,
+    ) -> vulkano::framebuffer::Subpass<Arc<RenderPassAbstract + Send + Sync>> {
+        vulkano::framebuffer::Subpass::<_>::from(self.render_pass.clone(), 0).unwrap()
+    }
 }
 
 pub struct RenderTest {
-    pub vk_state: VulcanoState,
+    vk_state: VulcanoState,
     events_loop: winit::EventsLoop,
 
-    pub text_console: TextConsole,
-    pub script_env: script::Environment,
+    text_console: TextConsole,
+    script_env: script::Environment,
     input_multiplexer: ConsoleInputMultiplexer,
 
     timed: bool,
 }
 
 impl RenderTest {
-    fn new(timed: bool) -> Result<RenderTest> {
+    pub fn new(timed: bool) -> Result<RenderTest> {
         let extensions = vulkano_win::required_extensions();
         let instance =
             Instance::new(None, &extensions, None).map_err(|_| Error::UnhandledVulkanoError {
@@ -579,7 +594,9 @@ impl RenderTest {
         framebuffers
     }
 
-    fn main_loop(&mut self, delegate: &mut dyn RenderDelegate) -> Result<()> {
+    pub fn main_loop(&mut self, delegate: &mut dyn RenderDelegate) -> Result<()> {
+        self.input_multiplexer.mx_sink1 = Some(delegate.get_input_sink());
+
         let framebuffers = self.window_size_dependent_setup();
         delegate.framebuffer_changed(&self.vk_state);
         // let mut pipeline = delegate.create_pipeline(&self);
@@ -587,7 +604,9 @@ impl RenderTest {
 
         self.input_multiplexer.mx_sink2 = Some(self.text_console.get_input_sink().clone());
 
-        let mut previous_frame = delegate.init(self);
+        //let mut previous_frame = delegate.init(&self.vk_state, &mut self.script_env);
+        let mut previous_frame = Box::new(vulkano::sync::now(self.vk_state.device.clone()))
+            as Box<vulkano::sync::GpuFuture>;
         let mut old_pos = None as Option<winit::dpi::LogicalPosition>;
 
         let (script_line_sink, script_lines_source) = channel();
@@ -796,6 +815,14 @@ impl RenderTest {
     pub fn set_player_input_sink(&mut self, sender: Sender<InputEvent>) {
         self.input_multiplexer.mx_sink1 = Some(sender);
     }
+
+    pub fn vk_state(&self) -> VulcanoState {
+        self.vk_state.clone()
+    }
+
+    pub fn script_env(&mut self) -> &mut script::Environment {
+        &mut self.script_env
+    }
 }
 
 // fn get_completion_query(template: &String) -> CompletionQuery {
@@ -833,12 +860,12 @@ impl text_console::CompletionProvider for script::Environment {
 }
 
 pub trait RenderDelegate {
-    fn init2(
-        &mut self,
-        vk_state: &VulcanoState,
-        script_env: &mut script::Environment,
-    ) -> Box<vulkano::sync::GpuFuture>;
-    fn init(&mut self, render_test: &mut RenderTest) -> Box<vulkano::sync::GpuFuture>;
+    // fn init(
+    //     &mut self,
+    //     vk_state: &VulcanoState,
+    //     script_env: &mut script::Environment,
+    // ) -> Box<vulkano::sync::GpuFuture>;
+    // fn init(&mut self, render_test: &mut RenderTest) -> Box<vulkano::sync::GpuFuture>;
     fn shutdown(self);
     fn framebuffer_changed(&mut self, vk_state: &VulcanoState);
     fn update(
@@ -851,6 +878,8 @@ pub trait RenderDelegate {
         vk_state: &VulcanoState,
         builder: AutoCommandBufferBuilder,
     ) -> Result<AutoCommandBufferBuilder>;
+
+    fn get_input_sink(&self) -> Sender<InputEvent>;
 }
 
 pub fn render_test(delegate: &mut RenderDelegate, timed: bool) -> Result<()> {
@@ -858,4 +887,16 @@ pub fn render_test(delegate: &mut RenderDelegate, timed: bool) -> Result<()> {
     //let vertex_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), vertices).unwrap();
 
     render_test.main_loop(delegate)
+}
+
+pub fn render_test2<F: FnOnce(&VulcanoState) -> Box<RenderDelegate>>(
+    factory: F,
+    timed: bool,
+) -> Result<()> {
+    let mut render_test = RenderTest::new(timed)?;
+    let mut delegate = factory(&render_test.vk_state());
+    render_test.main_loop(&mut *delegate)?;
+    //delegate.shutdown();
+    drop(delegate);
+    Ok(())
 }

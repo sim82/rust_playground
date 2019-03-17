@@ -109,7 +109,7 @@ pub fn main_loop(delegate: &mut RenderDelegate, timed: bool) -> Result<()> {
         render_pass: frame_system.render_pass.clone(),
     };
 
-    let mut previous_frame_end = delegate.init2(&vk_state, &mut script_env);
+    let mut previous_frame_end = delegate.init(&vk_state, &mut script_env);
     delegate.framebuffer_changed(&vk_state);
     loop {
         previous_frame_end.cleanup_finished();
