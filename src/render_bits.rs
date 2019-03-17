@@ -45,6 +45,7 @@ use std::sync::Arc;
 
 pub mod frame;
 pub mod math;
+pub mod render_test2;
 pub mod text_console;
 
 lazy_static! {
@@ -832,6 +833,11 @@ impl text_console::CompletionProvider for script::Environment {
 }
 
 pub trait RenderDelegate {
+    fn init2(
+        &mut self,
+        vk_state: &VulcanoState,
+        script_env: &mut script::Environment,
+    ) -> Box<vulkano::sync::GpuFuture>;
     fn init(&mut self, render_test: &mut RenderTest) -> Box<vulkano::sync::GpuFuture>;
     fn shutdown(self);
     fn framebuffer_changed(&mut self, vk_state: &VulcanoState);

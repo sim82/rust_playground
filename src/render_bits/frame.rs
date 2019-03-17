@@ -33,7 +33,7 @@ pub struct FrameSystem {
     // Render pass used for the drawing. See the `new` method for the actual render pass content.
     // We need to keep it in `FrameSystem` because we may want to recreate the intermediate buffers
     // in of a change in the dimensions.
-    render_pass: Arc<RenderPassAbstract + Send + Sync>,
+    pub render_pass: Arc<RenderPassAbstract + Send + Sync>,
     // Intermediate render target that will contain the albedo of each pixel of the scene.
     depth_buffer: Arc<AttachmentImage>,
 }
@@ -50,32 +50,53 @@ impl FrameSystem {
     ///
     pub fn new(gfx_queue: Arc<Queue>, final_output_format: Format) -> FrameSystem {
         let render_pass = Arc::new(
-            vulkano::ordered_passes_renderpass!(gfx_queue.device().clone(),
+            // vulkano::ordered_passes_renderpass!(gfx_queue.device().clone(),
+            //     attachments: {
+            //         // The image that will contain the final rendering (in this example the swapchain
+            //         // image, but it could be another image).
+            //         color: {
+            //             load: Clear,
+            //             store: Store,
+            //             format: final_output_format,
+            //             samples: 1,
+            //         },
+            //         // Will be bound to `self.depth_buffer`.
+            //         depth: {
+            //             load: Clear,
+            //             store: DontCare,
+            //             format: Format::D16Unorm,
+            //             samples: 1,
+            //         }
+            //     },
+            //     passes: [
+            //         // Write to the diffuse, normals and depth attachments.
+            //         {
+            //             color: [color],
+            //             depth_stencil: {depth},
+            //             input: []
+            //         }
+            //     ]
+            // )
+            // .unwrap(),
+            vulkano::single_pass_renderpass!(gfx_queue.device().clone(),
                 attachments: {
-                    // The image that will contain the final rendering (in this example the swapchain
-                    // image, but it could be another image).
                     color: {
                         load: Clear,
                         store: Store,
                         format: final_output_format,
                         samples: 1,
                     },
-                    // Will be bound to `self.depth_buffer`.
                     depth: {
                         load: Clear,
                         store: DontCare,
-                        format: Format::D16Unorm,
+                        format: Format::D32Sfloat,
                         samples: 1,
                     }
                 },
-                passes: [
-                    // Write to the diffuse, normals and depth attachments.
-                    {
-                        color: [color],
-                        depth_stencil: {depth},
-                        input: []
-                    }
-                ]
+                pass: {
+                    color: [color],
+                    depth_stencil: {depth}
+                }
             )
             .unwrap(),
         );
@@ -91,7 +112,7 @@ impl FrameSystem {
         let depth_buffer = AttachmentImage::with_usage(
             gfx_queue.device().clone(),
             [1, 1],
-            Format::D16Unorm,
+            Format::D32Sfloat,
             atch_usage,
         )
         .unwrap();
@@ -103,15 +124,8 @@ impl FrameSystem {
         }
     }
 
-    /// Returns the subpass of the render pass where the rendering should write info to gbuffers.
-    ///
-    /// Has two outputs: the diffuse color (3 components) and the normals in world coordinates
-    /// (3 components). Also has a depth attachment.
-    ///
-    /// This method is necessary in order to initialize the pipelines that will draw the objects
-    /// of the scene.
     #[inline]
-    pub fn deferred_subpass(&self) -> Subpass<Arc<RenderPassAbstract + Send + Sync>> {
+    pub fn main_subpass(&self) -> Subpass<Arc<RenderPassAbstract + Send + Sync>> {
         Subpass::from(self.render_pass.clone(), 0).unwrap()
     }
 
@@ -141,7 +155,7 @@ impl FrameSystem {
             self.depth_buffer = AttachmentImage::with_usage(
                 self.gfx_queue.device().clone(),
                 img_dims,
-                Format::D16Unorm,
+                Format::D32Sfloat,
                 atch_usage,
             )
             .unwrap();

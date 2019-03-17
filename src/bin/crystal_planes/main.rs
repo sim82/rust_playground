@@ -327,6 +327,114 @@ impl CrystalRenderDelgate {
 }
 
 impl RenderDelegate for CrystalRenderDelgate {
+    fn init2(
+        &mut self,
+        vk_state: &VulcanoState,
+        script_env: &mut script::Environment,
+    ) -> Box<vulkano::sync::GpuFuture> {
+        script_env.set("light_mode", 1i32.to_value());
+        let scene;
+        {
+            let bm = crystal::read_map("hidden_ramp.txt").expect("could not read file");
+
+            let mut planes = PlanesSep::new();
+            planes.create_planes(&bm);
+            // planes.print();
+            scene = Scene::new(planes, bm);
+            scene.print_stat();
+            // panic!("exit");
+        }
+
+        let future;
+        let mut colors_cpu = Vec::new();
+        let colors_buffer_pool;
+        {
+            let planes = &scene.planes;
+
+            let mut x: Vec<(&Point3i, i32)> = planes.vertex_iter().collect();
+            x.sort_by_key(|(_, v)| *v);
+            let scale = 0.25f32;
+
+            let vertices: Vec<_> = x
+                .iter()
+                .map(|(plane, _)| Vertex {
+                    position: (
+                        plane.x as f32 * scale,
+                        plane.y as f32 * scale,
+                        plane.z as f32 * scale,
+                    ),
+                })
+                .collect();
+
+            let indices: Vec<_> = planes
+                .planes_iter()
+                .flat_map(|plane| {
+                    vec![
+                        plane.vertices[0] as u32,
+                        plane.vertices[1] as u32,
+                        plane.vertices[2] as u32,
+                        plane.vertices[0] as u32,
+                        plane.vertices[2] as u32,
+                        plane.vertices[3] as u32,
+                    ]
+                    //[plane[0], plane[1], plane[2]]
+                })
+                .collect();
+            let (vertex_buffer, vb_future) = ImmutableBuffer::from_iter(
+                vertices.iter().cloned(),
+                BufferUsage::all(),
+                vk_state.queue.clone(),
+            )
+            .unwrap();
+
+            // let mut colors_tmp = Vec::new();
+            for _ in 0..vertices.len() {
+                colors_cpu.push(Color {
+                    color: (
+                        rand::random::<f32>(),
+                        rand::random::<f32>(),
+                        rand::random::<f32>(),
+                    ),
+                });
+            }
+
+            let indices = indices.iter().cloned();
+            let (index_buffer, ib_future) =
+                ImmutableBuffer::from_iter(indices, BufferUsage::all(), vk_state.queue.clone())
+                    .unwrap();
+
+            let uniform_buffer =
+                CpuBufferPool::<vs::ty::Data>::new(vk_state.device.clone(), BufferUsage::all());
+            self.vertex_buffer = Some(vertex_buffer);
+            self.index_buffer = Some(index_buffer);
+            self.uniform_buffer = Some(uniform_buffer);
+
+            colors_buffer_pool = CpuBufferPool::new(vk_state.device.clone(), BufferUsage::all());
+            future = Box::new(vb_future.join(ib_future))
+        }
+
+        let (tx, rx) = channel();
+        tx.send(GameEvent::UpdateLightPos(self.light_pos.clone()))
+            .unwrap(); // send initial update
+
+        // println!("send");
+        self.tx_pos = Some(tx);
+
+        // self.text_console = Some(TextConsole::new(render_test));
+
+        let (tx_sync, rx_sync) = channel(); // used as semaphore to sync with thread start
+
+        let rad_worker = RadWorker::start(scene, colors_buffer_pool, colors_cpu, rx, tx_sync);
+        script_env.subscribe(rad_worker.binding_tx.clone());
+
+        rx_sync.recv().unwrap(); // sync with thread startup (e.g., it has subscribed to script variables)
+        script_env.set("light_pos", self.light_pos.to_value());
+
+        self.rad_worker = Some(rad_worker);
+        // render_test.set_player_input_sink(self.input_state.sink.clone());
+        future
+    }
+
     fn init(&mut self, render_test: &mut RenderTest) -> Box<vulkano::sync::GpuFuture> {
         render_test.script_env.set("light_mode", 1i32.to_value());
         let vk_state = &render_test.vk_state;
@@ -516,7 +624,7 @@ impl RenderDelegate for CrystalRenderDelgate {
 
         if let Some(rad_worker) = &self.rad_worker {
             if let Ok(buf) = rad_worker.rx.try_recv() {
-                // println!("receive");
+                println!("receive");
                 self.colors_buffer_gpu = Some(Arc::new(buf));
             }
         }
@@ -647,7 +755,9 @@ fn main() {
     }
     let mut delegate = CrystalRenderDelgate::new();
 
-    render_bits::render_test(&mut delegate, timed).unwrap();
+    // render_bits::render_test(&mut delegate, timed).unwrap();
+    render_bits::render_test2::main_loop(&mut delegate, timed).unwrap();
+
     delegate.shutdown();
 }
 
