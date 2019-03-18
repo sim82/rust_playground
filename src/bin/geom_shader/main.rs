@@ -40,26 +40,7 @@ struct TestDelgate {
     input_state: InputStateEventDispatcher,
 }
 impl TestDelgate {
-    fn new() -> TestDelgate {
-        TestDelgate {
-            player_model: PlayerFlyModel::new(
-                Point3::new(17f32, 14f32, 27f32),
-                cgmath::Deg(13f32),
-                cgmath::Deg(-22f32),
-            ),
-            vertex_buffer: None,
-            colors_buffer_gpu: None,
-            index_buffer: None,
-            uniform_buffer: None,
-            pipeline: None,
-            last_time: Instant::now(),
-            input_state: InputStateEventDispatcher::new(),
-        }
-    }
-}
-
-impl RenderDelegate for TestDelgate {
-    fn init(&mut self, render_test: &mut RenderTest) -> Box<vulkano::sync::GpuFuture> {
+    fn new(vk_state: &VulcanoState, _script_env: &mut script::Environment) -> TestDelgate {
         let (vb, vb_fut) = vulkano::buffer::ImmutableBuffer::from_iter(
             [
                 Vertex {
@@ -90,10 +71,10 @@ impl RenderDelegate for TestDelgate {
             .iter()
             .cloned(),
             vulkano::buffer::BufferUsage::vertex_buffer(),
-            render_test.vk_state.queue.clone(),
+            vk_state.queue(),
         )
         .unwrap();
-        self.vertex_buffer = Some(vb);
+        // self.vertex_buffer = Some(vb);
 
         // hollow half cube
         let (ib, ib_fut) = vulkano::buffer::ImmutableBuffer::from_iter(
@@ -104,10 +85,10 @@ impl RenderDelegate for TestDelgate {
             .iter()
             .cloned(),
             vulkano::buffer::BufferUsage::index_buffer(),
-            render_test.vk_state.queue.clone(),
+            vk_state.queue(),
         )
         .unwrap();
-        self.index_buffer = Some(ib);
+        // self.index_buffer = Some(ib);
 
         let (cb, cb_fut) = vulkano::buffer::ImmutableBuffer::from_iter(
             [
@@ -139,25 +120,50 @@ impl RenderDelegate for TestDelgate {
             .iter()
             .cloned(),
             vulkano::buffer::BufferUsage::vertex_buffer(),
-            render_test.vk_state.queue.clone(),
+            vk_state.queue(),
         )
         .unwrap();
-        self.colors_buffer_gpu = Some(cb);
+        // self.colors_buffer_gpu = Some(cb);
 
-        self.uniform_buffer = Some(CpuBufferPool::<vs::ty::Data>::new(
-            render_test.vk_state.device.clone(),
-            BufferUsage::all(),
-        ));
+        // render_test.set_player_input_sink(self.input_state.sink.clone());
 
-        render_test.set_player_input_sink(self.input_state.sink.clone());
+        vb_fut
+            .join(ib_fut)
+            .join(cb_fut)
+            .then_signal_fence_and_flush()
+            .unwrap()
+            .wait(None)
+            .unwrap();
 
-        Box::new(vb_fut.join(ib_fut.join(cb_fut)))
+        TestDelgate {
+            player_model: PlayerFlyModel::new(
+                Point3::new(17f32, 14f32, 27f32),
+                cgmath::Deg(13f32),
+                cgmath::Deg(-22f32),
+            ),
+            vertex_buffer: Some(vb),
+            colors_buffer_gpu: Some(cb),
+            index_buffer: Some(ib),
+            uniform_buffer: Some(CpuBufferPool::<vs::ty::Data>::new(
+                vk_state.device(),
+                BufferUsage::all(),
+            )),
+            pipeline: None,
+            last_time: Instant::now(),
+            input_state: InputStateEventDispatcher::new(),
+        }
     }
+}
+
+impl RenderDelegate for TestDelgate {
     fn shutdown(self) {}
 
+    fn get_input_sink(&self) -> std::sync::mpsc::Sender<render_bits::InputEvent> {
+        self.input_state.sink.clone()
+    }
     fn framebuffer_changed(&mut self, vk_state: &VulcanoState) {
-        let vs = vs::Shader::load(vk_state.device.clone()).unwrap();
-        let fs = fs::Shader::load(vk_state.device.clone()).unwrap();
+        let vs = vs::Shader::load(vk_state.device()).unwrap();
+        let fs = fs::Shader::load(vk_state.device()).unwrap();
         let dimensions = vk_state.dimension();
         // In the triangle example we use a dynamic viewport, as its a simple example.
         // However in the teapot example, we recreate the pipelines with a hardcoded viewport instead.
@@ -179,8 +185,8 @@ impl RenderDelegate for TestDelgate {
                 .blend_alpha_blending()
                 .fragment_shader(fs.main_entry_point(), ())
                 .depth_stencil_simple_depth()
-                .render_pass(Subpass::from(vk_state.render_pass.clone(), 0).unwrap())
-                .build(vk_state.device.clone())
+                .render_pass(vk_state.main_subpass())
+                .build(vk_state.device())
                 .unwrap(),
         ));
     }
@@ -217,7 +223,7 @@ impl RenderDelegate for TestDelgate {
 
         // println!("{:?}", self.player_model);
 
-        Box::new(vulkano::sync::now(vk_state.device.clone()))
+        Box::new(vulkano::sync::now(vk_state.device()))
     }
 
     fn render_frame(
@@ -298,9 +304,9 @@ fn main() {
         // don't need / want denormals -> flush to zero
         core::arch::x86_64::_MM_SET_FLUSH_ZERO_MODE(core::arch::x86_64::_MM_FLUSH_ZERO_ON);
     }
-    let mut delegate = TestDelgate::new();
-
-    render_bits::render_test(&mut delegate, false);
+    let mut render_test = render_bits::RenderTest::new(false).unwrap();
+    let mut delegate = TestDelgate::new(&render_test.vk_state(), render_test.script_env());
+    render_test.main_loop(&mut delegate).unwrap();
     delegate.shutdown();
 }
 

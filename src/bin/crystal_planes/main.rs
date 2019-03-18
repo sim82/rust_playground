@@ -3,7 +3,7 @@ use rust_playground::{crystal, render_bits, script};
 use render_bits::Error;
 use render_bits::PlayerFlyModel;
 use render_bits::RenderDelegate;
-use render_bits::RenderTest;
+
 use render_bits::{InputStateEventDispatcher, VulcanoState};
 
 use crystal::rad::Scene;
@@ -20,7 +20,7 @@ use vulkano::buffer::cpu_pool::CpuBufferPoolChunk;
 use vulkano::buffer::{BufferUsage, CpuBufferPool, ImmutableBuffer};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
-use vulkano::framebuffer::Subpass;
+
 use vulkano::pipeline::vertex::TwoBuffersDefinition;
 use vulkano::pipeline::viewport::Viewport;
 use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
@@ -34,7 +34,7 @@ use render_bits::Vertex;
 
 use clap::{App, Arg};
 
-use std::sync::mpsc::{channel, sync_channel, Receiver, Sender, SyncSender};
+use std::sync::mpsc::{channel, sync_channel, Receiver, Sender};
 use std::thread::spawn;
 use std::thread::JoinHandle;
 
@@ -47,9 +47,6 @@ vulkano::impl_vertex!(Color, color);
 
 enum GameEvent {
     UpdateLightPos(Point3),
-    DoAction1,
-    DoAction2,
-    DoAction3,
     Stop,
 }
 
@@ -277,24 +274,18 @@ impl RadWorker {
 
 struct CrystalRenderDelgate {
     player_model: PlayerFlyModel,
-    vertex_buffer: Option<Arc<ImmutableBuffer<[Vertex]>>>,
+    vertex_buffer: Arc<ImmutableBuffer<[Vertex]>>,
     colors_buffer_gpu:
         Option<Arc<CpuBufferPoolChunk<Color, Arc<vulkano::memory::pool::StdMemoryPool>>>>,
-    // colors_buffer_pool: Option<CpuBufferPool<Color>>,
-
-    // colors_buffer: Option<Arc<CpuAccessibleBuffer<[Color]>>>,
-    index_buffer: Option<Arc<ImmutableBuffer<[u32]>>>,
-    uniform_buffer: Option<CpuBufferPool<vs::ty::Data>>,
-
-    // colors_cpu: Vec<Color>,
+    index_buffer: Arc<ImmutableBuffer<[u32]>>,
+    uniform_buffer: CpuBufferPool<vs::ty::Data>,
     last_time: std::time::Instant,
 
     light_pos: Point3,
 
-    rad_worker: Option<RadWorker>,
-    tx_pos: Option<Sender<GameEvent>>,
+    rad_worker: RadWorker,
+    tx_pos: Sender<GameEvent>,
 
-    // text_console: Option<TextConsole>,
     pipeline: Option<Arc<GraphicsPipelineAbstract + Send + Sync>>,
 
     input_state: InputStateEventDispatcher,
@@ -371,12 +362,6 @@ impl CrystalRenderDelgate {
         let (index_buffer, ib_future) =
             ImmutableBuffer::from_iter(indices, BufferUsage::all(), vk_state.queue()).unwrap();
 
-        let uniform_buffer =
-            CpuBufferPool::<vs::ty::Data>::new(vk_state.device(), BufferUsage::all());
-        // self.vertex_buffer = Some(vertex_buffer);
-        // self.index_buffer = Some(index_buffer);
-        // self.uniform_buffer = Some(uniform_buffer);
-
         colors_buffer_pool = CpuBufferPool::new(vk_state.device(), BufferUsage::all());
         let future = Box::new(vb_future.join(ib_future));
 
@@ -384,11 +369,6 @@ impl CrystalRenderDelgate {
         let light_pos = Point3::new(120.0, 48.0, 120.0);
         tx.send(GameEvent::UpdateLightPos(light_pos.clone()))
             .unwrap(); // send initial update
-
-        // println!("send");
-        // self.tx_pos = ;
-
-        // self.text_console = Some(TextConsole::new(render_test));
 
         let (tx_sync, rx_sync) = channel(); // used as semaphore to sync with thread start
 
@@ -411,15 +391,18 @@ impl CrystalRenderDelgate {
                 cgmath::Deg(13f32),
                 cgmath::Deg(-22f32),
             ),
-            vertex_buffer: Some(vertex_buffer),
+            vertex_buffer: vertex_buffer,
             colors_buffer_gpu: None,
-            index_buffer: Some(index_buffer),
-            uniform_buffer: Some(uniform_buffer),
+            index_buffer: index_buffer,
+            uniform_buffer: CpuBufferPool::<vs::ty::Data>::new(
+                vk_state.device(),
+                BufferUsage::all(),
+            ),
             last_time: Instant::now(),
             light_pos: light_pos,
 
-            rad_worker: Some(rad_worker),
-            tx_pos: Some(tx),
+            rad_worker: rad_worker,
+            tx_pos: tx,
 
             // text_console: None,
             pipeline: None,
@@ -435,17 +418,13 @@ impl RenderDelegate for CrystalRenderDelgate {
     }
 
     fn shutdown(self) {
-        if let Some(tx_pos) = &self.tx_pos {
-            tx_pos.send(GameEvent::Stop).unwrap();
-        }
+        self.tx_pos.send(GameEvent::Stop).unwrap();
 
-        if let Some(rad_worker) = self.rad_worker {
-            drop(rad_worker.rx); // unblock rad_worker if necessary
+        drop(self.rad_worker.rx); // unblock rad_worker if necessary
 
-            print!("joining rad_worker ...");
-            rad_worker.join_handle.join().unwrap();
-            println!(" done");
-        }
+        print!("joining rad_worker ...");
+        self.rad_worker.join_handle.join().unwrap();
+        println!(" done");
     }
     fn framebuffer_changed(&mut self, vk_state: &VulcanoState) {
         let vs = vs::Shader::load(vk_state.device()).unwrap();
@@ -513,11 +492,9 @@ impl RenderDelegate for CrystalRenderDelgate {
             env.set("light_pos", self.light_pos.to_value());
         }
 
-        if let Some(rad_worker) = &self.rad_worker {
-            if let Ok(buf) = rad_worker.rx.try_recv() {
-                // println!("receive");
-                self.colors_buffer_gpu = Some(Arc::new(buf));
-            }
+        if let Ok(buf) = self.rad_worker.rx.try_recv() {
+            // println!("receive");
+            self.colors_buffer_gpu = Some(Arc::new(buf));
         }
 
         self.player_model.apply_delta_lon(input_state.delta_lon());
@@ -546,69 +523,53 @@ impl RenderDelegate for CrystalRenderDelgate {
         vk_state: &VulcanoState,
         builder: AutoCommandBufferBuilder,
     ) -> render_bits::Result<AutoCommandBufferBuilder> {
-        match (
-            &self.vertex_buffer,
-            // &self.colors_buffer,
-            &self.colors_buffer_gpu,
-            &self.index_buffer,
-            &self.uniform_buffer,
-            &self.pipeline,
-        ) {
-            (
-                Some(vertex_buffer),
-                // Some(colors_buffer),
-                Some(colors_buffer_gpu),
-                Some(index_buffer),
-                Some(uniform_buffer),
-                Some(pipeline),
-            ) => {
-                let dimensions = vk_state.dimension();
+        if let (Some(colors_buffer_gpu), Some(pipeline)) = (&self.colors_buffer_gpu, &self.pipeline)
+        {
+            let dimensions = vk_state.dimension();
 
-                let uniform_buffer_subbuffer = {
-                    let aspect_ratio = dimensions[0] as f32 / dimensions[1] as f32;
+            let uniform_buffer_subbuffer = {
+                let aspect_ratio = dimensions[0] as f32 / dimensions[1] as f32;
 
-                    let uniform_data = vs::ty::Data {
-                        world: <Matrix4<f32> as Transform<Point3>>::one().into(), // from(rotation).into(),
-                        view: self.player_model.get_view_matrix().into(), //(view * scale).into(),
-                        proj: render_bits::math::perspective_projection(
-                            Rad(std::f32::consts::FRAC_PI_2),
-                            aspect_ratio,
-                            0.01,
-                            100.0,
-                        )
-                        .into(),
-                    };
-
-                    uniform_buffer.next(uniform_data).unwrap()
-                };
-
-                let set = Arc::new(
-                    PersistentDescriptorSet::start(pipeline.clone(), 0)
-                        .add_buffer(uniform_buffer_subbuffer)
-                        .map_err(|_| Error::UnhandledVulkanoError {
-                            error: "failed to add buffer to descriptor set".into(),
-                        })?
-                        .build()
-                        .map_err(|_| Error::UnhandledVulkanoError {
-                            error: "failed to build descriptor set".into(),
-                        })?,
-                );
-
-                Ok(builder
-                    .draw_indexed(
-                        pipeline.clone(),
-                        &DynamicState::none(),
-                        vec![vertex_buffer.clone(), colors_buffer_gpu.clone()],
-                        index_buffer.clone(),
-                        set.clone(),
-                        (),
+                let uniform_data = vs::ty::Data {
+                    world: <Matrix4<f32> as Transform<Point3>>::one().into(), // from(rotation).into(),
+                    view: self.player_model.get_view_matrix().into(), //(view * scale).into(),
+                    proj: render_bits::math::perspective_projection(
+                        Rad(std::f32::consts::FRAC_PI_2),
+                        aspect_ratio,
+                        0.01,
+                        100.0,
                     )
-                    .map_err(|_| render_bits::Error::UnhandledVulkanoError {
-                        error: "draw indexed failed for crystal planes".into(),
-                    })?)
-            }
+                    .into(),
+                };
+                self.uniform_buffer.next(uniform_data).unwrap()
+            };
 
-            _ => Ok(builder),
+            let set = Arc::new(
+                PersistentDescriptorSet::start(pipeline.clone(), 0)
+                    .add_buffer(uniform_buffer_subbuffer)
+                    .map_err(|_| Error::UnhandledVulkanoError {
+                        error: "failed to add buffer to descriptor set".into(),
+                    })?
+                    .build()
+                    .map_err(|_| Error::UnhandledVulkanoError {
+                        error: "failed to build descriptor set".into(),
+                    })?,
+            );
+
+            Ok(builder
+                .draw_indexed(
+                    pipeline.clone(),
+                    &DynamicState::none(),
+                    vec![self.vertex_buffer.clone(), colors_buffer_gpu.clone()],
+                    self.index_buffer.clone(),
+                    set.clone(),
+                    (),
+                )
+                .map_err(|_| render_bits::Error::UnhandledVulkanoError {
+                    error: "draw indexed failed for crystal planes".into(),
+                })?)
+        } else {
+            Ok(builder)
         }
     }
 }
@@ -644,10 +605,6 @@ fn main() {
         // don't need / want denormals -> flush to zero
         core::arch::x86_64::_MM_SET_FLUSH_ZERO_MODE(core::arch::x86_64::_MM_FLUSH_ZERO_ON);
     }
-
-    // let mut delegate = CrystalRenderDelgate::new();
-    // render_bits::render_test(&mut delegate, timed).unwrap();
-    // render_bits::render_test2::main_loop(&mut delegate, timed).unwrap();
 
     let mut render_test = render_bits::RenderTest::new(timed).unwrap();
     let mut delegate = CrystalRenderDelgate::new(&render_test.vk_state(), render_test.script_env());

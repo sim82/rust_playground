@@ -18,23 +18,21 @@ pub struct Color {
 vulkano::impl_vertex!(Color, color);
 
 struct TestDelgate {
-    text_console: Option<render_bits::text_console::TextConsole>,
+    text_console: render_bits::text_console::TextConsole,
 }
 impl TestDelgate {
-    fn new() -> TestDelgate {
-        TestDelgate { text_console: None }
+    fn new(vk_state: &VulcanoState, _script_env: &mut script::Environment) -> TestDelgate {
+        TestDelgate {
+            text_console: render_bits::text_console::TextConsole::new(&vk_state),
+        }
     }
 }
 
 impl RenderDelegate for TestDelgate {
-    fn init(&mut self, render_test: &mut RenderTest) -> Box<vulkano::sync::GpuFuture> {
-        self.text_console = Some(render_bits::text_console::TextConsole::new(
-            &render_test.vk_state,
-        ));
-        Box::new(vulkano::sync::now(render_test.vk_state.device.clone()))
-    }
     fn shutdown(self) {}
-
+    fn get_input_sink(&self) -> std::sync::mpsc::Sender<rust_playground::render_bits::InputEvent> {
+        self.text_console.get_input_sink()
+    }
     fn framebuffer_changed(&mut self, _vk_state: &VulcanoState) {
         // if self.text_console.is_none() {
         //     return;
@@ -49,7 +47,7 @@ impl RenderDelegate for TestDelgate {
         //     text_console.add_line(&format!("time: {:?}\n", Instant::now()));
         //     text_console.update(render_test)
         // } else {
-        Box::new(vulkano::sync::now(vk_state.device.clone()))
+        Box::new(vulkano::sync::now(vk_state.device()))
         // }
     }
 
@@ -96,9 +94,9 @@ fn main() {
         // don't need / want denormals -> flush to zero
         core::arch::x86_64::_MM_SET_FLUSH_ZERO_MODE(core::arch::x86_64::_MM_FLUSH_ZERO_ON);
     }
-    let mut delegate = TestDelgate::new();
-
-    render_bits::render_test(&mut delegate, false);
+    let mut render_test = render_bits::RenderTest::new(false).unwrap();
+    let mut delegate = TestDelgate::new(&render_test.vk_state(), render_test.script_env());
+    render_test.main_loop(&mut delegate).unwrap();
     delegate.shutdown();
 }
 
