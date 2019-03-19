@@ -1,5 +1,7 @@
 use crate::render_bits;
 use crate::render_bits::{InputEvent, TexCoord, Vertex, VulcanoState};
+use crate::script;
+
 use log::Log;
 use vulkano::buffer::{cpu_pool::CpuBufferPoolChunk, BufferUsage, CpuBufferPool};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
@@ -19,7 +21,9 @@ use std::sync::Arc;
 use glyph_brush::{rusttype, BrushAction, BrushError, GlyphBrush, GlyphBrushBuilder, Section};
 use image::ImageBuffer;
 
-use std::sync::mpsc::{channel, sync_channel, Receiver, Sender, SyncSender};
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::sync::mpsc::{channel, Receiver, Sender};
 
 #[derive(Copy, Clone)]
 pub struct Color {
@@ -95,6 +99,8 @@ pub struct TextConsole {
     hidpi_factor: f64,
 
     history_line: String,
+    binding_dispatcher: script::BindingDispatcher,
+    value_watches: Vec<(String, Rc<RefCell<script::ValueWatch>>)>,
 }
 
 fn longest_common_prefix(strings: &Vec<String>) -> String {
@@ -123,7 +129,7 @@ fn longest_common_prefix(strings: &Vec<String>) -> String {
 }
 
 impl TextConsole {
-    pub fn new(vk_state: &VulcanoState) -> Self {
+    pub fn new(vk_state: &VulcanoState, binding_dispatcher: script::BindingDispatcher) -> Self {
         let (tx, rx) = channel();
         let (input_tx, input_rx) = channel();
 
@@ -168,9 +174,16 @@ impl TextConsole {
             hidpi_factor: 0f64,
             input_line_sink: None,
             history_line: "".into(),
+            binding_dispatcher: binding_dispatcher,
+            value_watches: Vec::new(),
         }
     }
-
+    pub fn watch_value(&mut self, name: String) {
+        // self.binding_dispatcher.
+        let watch = script::ValueWatch::new();
+        self.value_watches.push((name.clone(), watch.clone()));
+        self.binding_dispatcher.bind_value(&name[..], watch.clone());
+    }
     pub fn framebuffer_changed(&mut self, vk_state: &VulcanoState) {
         let vs = vs::Shader::load(vk_state.device.clone()).unwrap();
         let fs = fs::Shader::load(vk_state.device.clone()).unwrap();
@@ -286,7 +299,7 @@ impl TextConsole {
     }
 
     pub fn update(&mut self, vk_state: &VulcanoState) -> Box<vulkano::sync::GpuFuture> {
-        let font_size = (16f64 * self.hidpi_factor) as f32;
+        let font_size = 24f32; //(16f64 * self.hidpi_factor) as f32;
         let mut il: String = ">".into();
 
         il += &self.input_line;
@@ -313,6 +326,19 @@ impl TextConsole {
 
             // println!("queue: {}", line);
         }
+
+        self.binding_dispatcher.dispatch();
+        for (i, (name, watch)) in self.value_watches.iter().enumerate() {
+            self.brush.queue(Section {
+                //text: "MMMHello qwertyuiopasdfghjklzxcvbnmQWERTYUIOASDFGHJKLZXCVBNM",
+                text: &format!("{}: {}", name, watch.borrow().value),
+                scale: glyph_brush::rusttype::Scale::uniform(font_size),
+                screen_position: (self.dimensions[0] as f32, font_size * i as f32),
+                layout: glyph_brush::Layout::default().h_align(glyph_brush::HorizontalAlign::Right),
+                ..Section::default()
+            });
+        }
+
         // println!("done");
         let mut verts = Vec::new();
         let mut tex = Vec::new();

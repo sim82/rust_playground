@@ -59,8 +59,9 @@ pub fn canvas_projection(width: u32, height: u32) -> Matrix4<f32> {
     //  - translate origin to (1,1)
     //  - scale to screen resolution
 
-    let scale = Matrix4::from_nonuniform_scale(width as f32, height as f32, 1f32);
+    let scale = Matrix4::from_nonuniform_scale((width / 2) as f32, (height / 2) as f32, 1f32);
     let translate = Matrix4::from_translation(Vector3::<_>::new(1f32, 1f32, 0f32));
 
     (scale * translate).invert().unwrap()
+    // scale.invert().unwrap()
 }

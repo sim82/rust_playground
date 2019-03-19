@@ -134,7 +134,7 @@ impl std::fmt::Debug for Value {
 }
 
 pub struct ValueWatch {
-    value: Value,
+    pub value: Value,
     updated: bool,
 }
 

@@ -523,7 +523,14 @@ impl RenderTest {
             render_pass: render_pass,
         };
 
-        let text_console = TextConsole::new(&vk_state);
+        let (btx, brx) = channel();
+        let mut text_console = TextConsole::new(&vk_state, script::BindingDispatcher::new(brx));
+
+        let mut script_env = script::Environment::new();
+        script_env.subscribe(btx);
+
+        text_console.watch_value("light_mode".to_string());
+        text_console.watch_value("light_pos".to_string());
 
         LOGGER.set_sink(text_console.get_sender());
         log::set_logger(&*LOGGER)
@@ -536,7 +543,7 @@ impl RenderTest {
             events_loop: events_loop,
             text_console: text_console,
             input_multiplexer: ConsoleInputMultiplexer::new(),
-            script_env: script::Environment::new(),
+            script_env: script_env,
             timed: timed,
         })
     }
