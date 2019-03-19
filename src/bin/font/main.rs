@@ -22,8 +22,13 @@ struct TestDelgate {
 }
 impl TestDelgate {
     fn new(vk_state: &VulcanoState, _script_env: &mut script::Environment) -> TestDelgate {
+        let (_, brx) = std::sync::mpsc::channel();
+
         TestDelgate {
-            text_console: render_bits::text_console::TextConsole::new(&vk_state),
+            text_console: render_bits::text_console::TextConsole::new(
+                &vk_state,
+                crate::script::BindingDispatcher::new(brx),
+            ),
         }
     }
 }
