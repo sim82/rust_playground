@@ -88,6 +88,7 @@ impl RadWorker {
         mut colors_cpu: Vec<Color>,
         rx_event: Receiver<GameEvent>,
         tx_sync: Sender<()>,
+        script_lines_sink: Sender<String>,
     ) -> RadWorker {
         let (tx, rx) = sync_channel(2);
         let (btx, brx) = channel();
@@ -259,7 +260,12 @@ impl RadWorker {
                     scene.pints = 0;
 
                     println!("pint/s: {:e}", pintss);
-                    log::info!("bounces/s: {:e}", pintss);
+                    // log::info!("bounces/s: {:e}", pintss);
+
+                    script_lines_sink
+                        .send(format!("set rad_bps {:e}", pintss))
+                        .expect("script_lines_sink send failed");
+
                     last_stat = Instant::now();
                 }
             }
@@ -292,7 +298,11 @@ struct CrystalRenderDelgate {
 }
 
 impl CrystalRenderDelgate {
-    fn new(vk_state: &VulcanoState, script_env: &mut script::Environment) -> CrystalRenderDelgate {
+    fn new(
+        vk_state: &VulcanoState,
+        script_env: &mut script::Environment,
+        script_lines_sink: Sender<String>,
+    ) -> CrystalRenderDelgate {
         script_env.set("light_mode", 1i32.to_value());
         let scene;
         {
@@ -372,7 +382,14 @@ impl CrystalRenderDelgate {
 
         let (tx_sync, rx_sync) = channel(); // used as semaphore to sync with thread start
 
-        let rad_worker = RadWorker::start(scene, colors_buffer_pool, colors_cpu, rx, tx_sync);
+        let rad_worker = RadWorker::start(
+            scene,
+            colors_buffer_pool,
+            colors_cpu,
+            rx,
+            tx_sync,
+            script_lines_sink,
+        );
         script_env.subscribe(rad_worker.binding_tx.clone());
 
         rx_sync.recv().unwrap(); // sync with thread startup (e.g., it has subscribed to script variables)
@@ -607,7 +624,10 @@ fn main() {
     }
 
     let mut render_test = render_bits::RenderTest::new(timed).unwrap();
-    let mut delegate = CrystalRenderDelgate::new(&render_test.vk_state(), render_test.script_env());
+
+    let sink = render_test.script_lines_sink();
+    let mut delegate =
+        CrystalRenderDelgate::new(&render_test.vk_state(), render_test.script_env(), sink);
     render_test.main_loop(&mut delegate).unwrap();
     delegate.shutdown();
 }

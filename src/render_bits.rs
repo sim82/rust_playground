@@ -379,6 +379,9 @@ pub struct RenderTest {
     script_env: script::Environment,
     input_multiplexer: ConsoleInputMultiplexer,
 
+    script_lines_sink: Sender<String>,
+    script_lines_source: Receiver<String>,
+
     timed: bool,
 }
 
@@ -531,11 +534,14 @@ impl RenderTest {
 
         text_console.watch_value("light_mode".to_string());
         text_console.watch_value("light_pos".to_string());
+        text_console.watch_value("rad_bps".to_string());
 
         LOGGER.set_sink(text_console.get_sender());
         log::set_logger(&*LOGGER)
             .map(|()| log::set_max_level(log::LevelFilter::Info))
             .unwrap();
+
+        let (script_lines_sink, script_lines_source) = channel();
 
         Ok(RenderTest {
             vk_state: vk_state,
@@ -545,6 +551,8 @@ impl RenderTest {
             input_multiplexer: ConsoleInputMultiplexer::new(),
             script_env: script_env,
             timed: timed,
+            script_lines_sink: script_lines_sink,
+            script_lines_source: script_lines_source,
         })
     }
 
@@ -616,8 +624,8 @@ impl RenderTest {
             as Box<vulkano::sync::GpuFuture>;
         let mut old_pos = None as Option<winit::dpi::LogicalPosition>;
 
-        let (script_line_sink, script_lines_source) = channel();
-        self.text_console.set_input_line_sink(script_line_sink);
+        self.text_console
+            .set_input_line_sink(self.script_lines_sink.clone());
 
         let mut last_frame_start = std::time::Instant::now();
         let target_frame_time = std::time::Duration::from_micros(1000000 / 60);
@@ -654,7 +662,7 @@ impl RenderTest {
             let update_fut = delegate.update(&self.vk_state, &mut self.script_env);
 
             loop {
-                if let Ok(line) = script_lines_source.try_recv() {
+                if let Ok(line) = self.script_lines_source.try_recv() {
                     script::parse(&line, &mut self.script_env);
                 } else {
                     break;
@@ -829,6 +837,9 @@ impl RenderTest {
 
     pub fn script_env(&mut self) -> &mut script::Environment {
         &mut self.script_env
+    }
+    pub fn script_lines_sink(&self) -> Sender<String> {
+        self.script_lines_sink.clone()
     }
 }
 
