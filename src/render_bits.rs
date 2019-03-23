@@ -532,9 +532,9 @@ impl RenderTest {
         let mut script_env = script::Environment::new();
         script_env.subscribe(btx);
 
-        text_console.watch_value("light_mode".to_string());
-        text_console.watch_value("light_pos".to_string());
-        text_console.watch_value("rad_bps".to_string());
+        text_console.watch_value("light_mode");
+        text_console.watch_value("light_pos");
+        text_console.watch_value("rad_bps");
 
         LOGGER.set_sink(text_console.get_sender());
         log::set_logger(&*LOGGER)

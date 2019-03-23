@@ -6,6 +6,9 @@ use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::mpsc::{Receiver, Sender};
 
+pub mod parse;
+pub mod tokenize;
+
 pub enum ScriptError {
     ParseError(String),
     UnknownVariable(String),
@@ -260,24 +263,28 @@ pub fn tokenize(line: &str) -> Option<VecDeque<ScriptToken>> {
     }
 
     let token = tokens.pop_front().unwrap();
-    if token == "set" {
-        out.push_back(ScriptToken::Command("set".into()));
-
-        if !tokens.is_empty() {
-            out.push_back(ScriptToken::Variable(tokens.pop_front().unwrap().into()));
+    match &token[..] {
+        "set" => {
+            out.push_back(ScriptToken::Command("set".into()));
 
             if !tokens.is_empty() {
-                out.push_back(ScriptToken::Value(tokens.pop_front().unwrap().into()));
+                out.push_back(ScriptToken::Variable(tokens.pop_front().unwrap().into()));
+
+                if !tokens.is_empty() {
+                    out.push_back(ScriptToken::Value(tokens.pop_front().unwrap().into()));
+                }
             }
         }
-    } else if token == "get" {
-        out.push_back(ScriptToken::Command("get".into()));
+        "get" => {
+            out.push_back(ScriptToken::Command("get".into()));
 
-        if !tokens.is_empty() {
-            out.push_back(ScriptToken::Variable(tokens.pop_front().unwrap().into()));
+            if !tokens.is_empty() {
+                out.push_back(ScriptToken::Variable(tokens.pop_front().unwrap().into()));
+            }
         }
-    } else {
-        out.push_back(ScriptToken::Command(token.into()));
+        _ => {
+            out.push_back(ScriptToken::Command(token.into()));
+        }
     }
 
     Some(out)

@@ -178,11 +178,11 @@ impl TextConsole {
             value_watches: Vec::new(),
         }
     }
-    pub fn watch_value(&mut self, name: String) {
+    pub fn watch_value(&mut self, name: &str) {
         // self.binding_dispatcher.
         let watch = script::ValueWatch::new();
-        self.value_watches.push((name.clone(), watch.clone()));
-        self.binding_dispatcher.bind_value(&name[..], watch.clone());
+        self.value_watches.push((name.into(), watch.clone()));
+        self.binding_dispatcher.bind_value(name, watch.clone());
     }
     pub fn framebuffer_changed(&mut self, vk_state: &VulcanoState) {
         let vs = vs::Shader::load(vk_state.device.clone()).unwrap();
